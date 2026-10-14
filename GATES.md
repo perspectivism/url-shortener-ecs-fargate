@@ -12,6 +12,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M2 📊 Click pipeline (local)](#m2--click-pipeline-local---closed)
 - [M3 🐳 Containers](#m3--containers---closed)
 - [M4 🏗️ Bootstrap, network & data](#m4-️-bootstrap-network--data---closed-local)
+- [M5 🚀 ECS services & edge](#m5--ecs-services--edge---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -165,6 +166,40 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   3. ☁️ Post-apply verification (AWS CLI, read-only): DynamoDB PITR + SSE-KMS on both tables; S3 Block Public Access on all buckets; SQS SSE-KMS + redrive policy; Valkey Serverless `available` with the IAM user group; secrets exist with **no** versions yet (metadata only). Record IDs in GATES.md.
   4. 👤 `make seed-secrets ENV=dev` (human, own terminal) → ☁️ agent verifies versions exist via `list-secret-version-ids` (metadata only).
 
+## M5 🚀 ECS services & edge — 🟡 closed-local
+
+- **Date:** 2026-10-14T21:40Z
+- **Commit:** `3b2d556` (tag `gate-m5-local`)
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Static checks (M4 set on new code) | `make tf-check` | ✅ | fmt, validate (3 roots, 14 modules), tflint 0 issues, checkov 859 passed / 0 failed / 73 justified skips, Trivy MEDIUM+ 0 (2 inline justified ignores), parity (5 files identical), READMEs fresh |
+| terraform test | `make tf-check` | ✅ | 43 runs in 15 suites; new assertions: ALB `internal = true` + `drop_invalid_header_fields`; ALB SG ingress = CloudFront origin-facing prefix list only, egress only to task SGs; task SG ingress from the ALB SG only; read-only root FS, UID 65532, `drop ALL`, ARM64, binary health check, non-blocking awslogs; circuit breaker with rollback (100/200); `CachingDisabled` on both behaviors; WAF associated (managed rules, AnonymousIpList in count, 429 rate rules, Authorization redacted); VPC origin; secrets via `valueFrom` only; execution role reads only its own secrets; scheduler may only run its task on its cluster; custom domain → HTTPS listener, https-only origin, TLSv1.2_2021 |
+| Plans (phase 1) | `make plan ENV=dev/prod` | ✅ | read-only, local mode: dev +92, prod +101 |
+| Plans (phase 2) | `TF_VAR_enable_services=true TF_VAR_image_tag=3b2d556f3a67 make plan` | ✅ | read-only, local mode: dev +171, prod +182, 0 destroy; WAF `CLOUDFRONT` in `us-east-1`; dev redirect on Spot, prod redirect/api on-demand base 2 |
+| Smoke suite | `make smoke` against the local containerized stack | ✅ | create → 302 (`no-store`) → click counted after 5 s → 404 → delete → 410 → 401 ×2 → Google test URL 422 `unsafe_url` (fake scanner); oversize 413; cross-owner 404 (GET/DELETE/stats) |
+| Regression | `make lint test test-integration docs-check` | ✅ | lint 0 issues (smoke tag linted); coverage 97.7%; integration 14/14 (83.7 s); 23/23 diagrams, 119/119 links |
+
+- **Decisions / ADRs:** ADR-0003, ADR-0012, ADR-0017 (Proposed: deploy strategy decided; CI/CD completed in M8). Design doc deployment section.
+- **Deviations / assumptions:**
+  - **ECS Exec off by default in dev too:** AWS does not support ECS Exec with a read-only root filesystem, and distroless images lack a shell and the `script`/`cat` needed for session logging. SPEC's hardened runtime wins; `ecs_exec_enabled` is a break-glass toggle (relaxes the read-only FS for that environment; forbidden in prod by validation). Dev no longer needs the `ssmmessages` endpoint (−$7.30/month).
+  - CloudFront-scope WAF, the viewer ACM certificate and CloudFront/WAF log groups use the AWS provider 6.x per-resource `region = "us-east-1"` instead of a provider alias (SPEC §12.1); same result, modules stay independently validatable.
+  - CloudFront access logs use standard logging v2 into a CMK-encrypted CloudWatch log group (us-east-1) with retention.
+  - WAF `SizeRestrictions_BODY` is counted, not blocked, so the API's own 8 KiB limit answers 413 (SPEC M7 smoke expects 413).
+  - Worker scales on queue backlog with step scaling (target tracking on backlog-per-task cannot scale from zero).
+  - Services wait for routing via `routing_ready` (listener/rule ARN) to avoid a module-level dependency cycle.
+  - Without a custom domain, the viewer TLS policy is fixed by AWS for `*.cloudfront.net`; the CloudFront→ALB and ALB→task hops are HTTP inside the AWS network (accepted risks in the threat model).
+  - Trivy scans of the source tree skip saved `tfplan` files (they embed stale source snapshots).
+- **Pending (closed-local):**
+  1. 👤/☁️ Build and push images: `make images` then `APPROVED=yes make push-images ENV=dev` (approval).
+  2. ☁️ Phase 2: set `enable_services = true` and `image_tag` in `infra/envs/dev/terraform.tfvars`; `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev`.
+  3. ☁️ Verify all services steady with healthy targets (`aws ecs describe-services`, `aws elbv2 describe-target-health`).
+  4. ☁️ Create an API key against dev (`shortenerctl apikey create` with dev `LINKS_TABLE`), export `SMOKE_API_KEY`, then `make smoke BASE_URL=$(terraform output -raw base_url)`.
+  5. ☁️ ALB DNS **not reachable** from the public internet: `curl --max-time 10 http://<alb_dns_name>/healthz` must fail/time out (record).
+  6. ☁️ Nightly runs successfully via a manual `aws ecs run-task` (parameters from output `nightly_run_task`); check exit code 0 and the summary log line.
+  7. ☁️ Forced bad deploy: throwaway apply with a non-existent `image_tag` (or an image whose health check fails) → circuit breaker rolls back; record the rollback event, then re-apply the good tag.
+
 ## 📋 Pending cloud checks summary
 
 Cumulative, in execution order. Hand this list back when ready to deploy.
@@ -173,3 +208,7 @@ Cumulative, in execution order. Hand this list back when ready to deploy.
 2. **M4** — `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev` (foundation).
 3. **M4** — Post-apply verification of the dev foundation (DynamoDB PITR/SSE, S3 BPA, SQS SSE/redrive, Valkey status/auth, secrets exist without values).
 4. **M4** — 👤 `make seed-secrets ENV=dev`; verify secret versions (metadata only).
+5. **M5** — `make images`; approve → `APPROVED=yes make push-images ENV=dev`.
+6. **M5** — Phase 2: `enable_services = true`, `image_tag = <sha>`; `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev`.
+7. **M5** — Services steady, targets healthy; API key for dev; `make smoke BASE_URL=<cloudfront>`.
+8. **M5** — ALB DNS unreachable from the internet; manual nightly run succeeds; forced bad deploy triggers circuit-breaker rollback (evidence recorded).
