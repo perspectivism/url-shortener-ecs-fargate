@@ -1,8 +1,8 @@
 # 📟 URL Shortener — Runbook
 
-> **Status:** v0.2 (M6). Service overview, SLOs and alarm responses are in
-> place. The operational procedures in SPEC §17.4 (deploy, rollback, DLQ
-> redrive, restores, teardown, …) are completed in M9.
+> **Status:** v0.3 (M8). Service overview, SLOs, alarm responses, CI/CD
+> setup, deploy and rollback are in place. The remaining SPEC §17.4 procedures
+> (DLQ redrive, restores, rotations, teardown, …) are completed in M9.
 
 ## Contents
 
@@ -160,6 +160,99 @@ The alarm returns to OK at its next evaluation, which sends an OK email too.
 
 ## 5. Procedures
 
-Deploy, rollback, disabling a malicious link, API-key revocation, secret
-rotation, DLQ redrive, PITR restore, scaling and full teardown: completed in M9
-(SPEC §17.4).
+### 5.1 CI/CD setup (one time, 👤 repository admin)
+
+Prerequisites: `make bootstrap` applied, phase 1 applied for the environment,
+and `make seed-secrets` done ([GATES.md](../GATES.md) pending list). Values come
+from `terraform -chdir=infra/bootstrap output`. None of them are secrets,
+except the smoke API keys.
+
+1. **Repository variables:**
+
+   ```bash
+   gh variable set AWS_REGION --body us-east-1
+   gh variable set OWNER --body platform-team
+   gh variable set TF_STATE_BUCKET --body "$(terraform -chdir=infra/bootstrap output -raw state_bucket)"
+   gh variable set TF_STATE_KMS_KEY_ARN --body "$(terraform -chdir=infra/bootstrap output -raw state_kms_key_arn)"
+   gh variable set AWS_PLAN_ROLE_ARN --body "$(terraform -chdir=infra/bootstrap output -raw plan_role_arn)"
+   ```
+
+2. **Environments `dev` and `prod`:** Settings → Environments. Restrict
+   deployment branches to `main`. On `prod`, add **required reviewers** (the
+   owner) and enable "Prevent self-review". Then set the variables:
+
+   ```bash
+   for env in dev prod; do
+     gh variable set AWS_APPLY_ROLE_ARN --env "$env" \
+       --body "$(terraform -chdir=infra/bootstrap output -json apply_role_arns | jq -r --arg e "$env" '.[$e]')"
+     gh variable set ALERT_EMAIL --env "$env" --body oncall@example.com
+   done
+   ```
+
+3. **Smoke API key per environment.** The key goes straight into the GitHub
+   secret and is never shown (run with your own AWS credentials):
+
+   ```bash
+   env=dev
+   go run ./cmd/shortenerctl apikey create --env "$env" --table "shortener-$env-links" \
+       --owner ci-smoke --scopes links:read,links:write \
+     | tee >(grep -E '^(key_hash|owner|scopes):' >&2) \
+     | awk '/^api_key:/ {print $2}' | gh secret set SMOKE_API_KEY --env "$env"
+   ```
+
+   Record the printed `key_hash`; you need it to revoke the key.
+
+4. **Branch protection** (Settings → Rules → new branch ruleset on `main`):
+
+   - require a pull request with 1 approval and code-owner review;
+   - require these status checks: `go · lint, unit, vuln, secrets`,
+     `integration (compose emulators)`, `images · build arm64, non-root, Trivy`,
+     `terraform · fmt, validate, tflint, checkov, Trivy, test`,
+     `docs and workflows · markdown, Mermaid, links, actionlint, zizmor, pins`,
+     `terraform plan (dev)`;
+   - block force pushes and deletions.
+
+   Replace `@OWNER` in [`.github/CODEOWNERS`](../.github/CODEOWNERS).
+
+### 5.2 Deploy
+
+```mermaid
+flowchart LR
+    pr["🔀 PR"] --> ci["ci.yml<br/>checks + dev plan comment"]
+    ci --> merge["merge to main"]
+    merge --> build["build arm64 OCI images once<br/>(digests recorded)"]
+    build --> dev["dev: push + verify digests<br/>plan → apply saved plan → smoke"]
+    dev --> wait{"👤 prod reviewers"}
+    wait -->|approve| prod["prod: same digests<br/>plan → apply → smoke"]
+```
+
+- Normal path: merge a reviewed PR. `deploy.yml` builds once, pushes the
+  images to dev and checks each ECR digest against the built manifest. It
+  then plans with `image_tag = <12-char SHA>`, applies exactly that plan
+  (ECS rolling deploy with the circuit breaker) and runs the smoke suite.
+- **Prod** waits for a reviewer to approve the `prod` environment. Before
+  approving, check that the dev smoke step is green and the dev dashboard is
+  quiet. The prod job pushes the **same digests** and verifies them.
+- Manual deploy, from a clean commit with admin credentials: run `make
+  images-oci`, then `APPROVED=yes make push-images ENV=dev`, then set
+  `image_tag` in `terraform.tfvars`. Run `make plan ENV=dev`; once the plan is
+  approved, run `APPROVED=yes make apply ENV=dev`, then `make smoke-env ENV=dev`.
+
+### 5.3 Rollback
+
+1. **Automatic:** if new tasks fail health checks, the ECS circuit breaker
+   restores the previous task definition. `terraform apply` then fails, so the
+   pipeline turns red and prod is never reached.
+2. **Manual**, for a bad version that passes health checks, choose one:
+   - **Revert (preferred):** merge `git revert <bad sha>`. The pipeline ships
+     the reverted code through dev and prod as a new, reviewed SHA.
+   - **Fast rollback:** use admin credentials with `image_tag` set to the last
+     good SHA (its images are still in ECR, since tags are immutable). Set it in
+     `infra/envs/<env>/terraform.tfvars` and run `make plan ENV=<env>`. After
+     approval, run `APPROVED=yes make apply ENV=<env>`, then `make smoke-env ENV=<env>`.
+     Afterwards, merge a revert so `main` matches what is deployed.
+3. Never delete or overwrite an image tag (tags are immutable).
+
+Other SPEC §17.4 procedures (disable a link, revoke an API key, rotations, DLQ
+redrive, PITR restore, scaling, Valkey failure, cost emergency, teardown)
+follow in M9.

@@ -1,33 +1,45 @@
 #!/usr/bin/env bash
-# Pushes the arm64 images for the current commit to the environment's ECR
-# repositories (immutable tags = git SHA). Requires APPROVED=yes (AGENTS.md §4).
-# Usage: APPROVED=yes scripts/push-images.sh <dev|prod>
+# Pushes the OCI layouts from scripts/build-oci.sh (dist/images) to the
+# environment's ECR repositories, tag = git SHA, and verifies that ECR reports
+# exactly the built manifest digest — the same bytes in every environment.
+# Idempotent: an existing tag with the same digest is accepted; a different
+# digest fails (tags are immutable). Requires APPROVED=yes (AGENTS.md §4; in
+# CI the GitHub environment is the approval).
+# Usage: APPROVED=yes scripts/push-images.sh <dev|prod> [registry]
+#   registry defaults to <account>.dkr.ecr.<region>.amazonaws.com (ECR login
+#   via the AWS CLI); pass one to test against another registry.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-env_name="${1:?usage: push-images.sh <dev|prod>}"
+env_name="${1:?usage: push-images.sh <dev|prod> [registry]}"
+registry="${2:-}"
 project="${PROJECT:-shortener}"
 region="${AWS_REGION:-us-east-1}"
-services=(redirect api worker nightly)
+dir="$ROOT/dist/images"
 
-tag="$(git -C "$ROOT" rev-parse --short=12 HEAD)"
-if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
-  echo "refusing: working tree is dirty; images must correspond to a commit" >&2
+[[ "${APPROVED:-}" == "yes" ]] || { echo "refusing: human approval required (APPROVED=yes)" >&2; exit 1; }
+[[ -f "$dir/digests.txt" && -f "$dir/tag" ]] || { echo "no $dir: run make images-oci first" >&2; exit 1; }
+tag="$(cat "$dir/tag")"
+if [[ ! "$tag" =~ ^[0-9a-f]{12}$ && -z "$registry" ]]; then
+  echo "refusing: tag $tag is not a clean commit SHA (dirty build); only test registries accept it" >&2
   exit 1
 fi
-[[ "${APPROVED:-}" == "yes" ]] || { echo "refusing: human approval required (APPROVED=yes)" >&2; exit 1; }
 
-account="$(aws sts get-caller-identity --query Account --output text)"
-registry="$account.dkr.ecr.$region.amazonaws.com"
-aws ecr get-login-password --region "$region" | docker login --username AWS --password-stdin "$registry" >/dev/null
+if [[ -z "$registry" ]]; then
+  account="$(aws sts get-caller-identity --query Account --output text)"
+  registry="$account.dkr.ecr.$region.amazonaws.com"
+  aws ecr get-login-password --region "$region" | crane auth login "$registry" --username AWS --password-stdin >/dev/null
+fi
 
-for svc in "${services[@]}"; do
-  local_ref="$project/$svc:$tag"
-  remote_ref="$registry/$project-$env_name-$svc:$tag"
-  docker image inspect "$local_ref" >/dev/null 2>&1 || { echo "missing $local_ref (run make images)" >&2; exit 1; }
-  [[ "$(docker image inspect --format '{{.Architecture}}' "$local_ref")" == "arm64" ]] || { echo "$local_ref is not arm64" >&2; exit 1; }
-  docker tag "$local_ref" "$remote_ref"
-  docker push --quiet "$remote_ref" >/dev/null
-  digest="$(aws ecr describe-images --region "$region" --repository-name "$project-$env_name-$svc" --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)"
-  echo "pushed $remote_ref ($digest)"
-done
+while read -r svc digest; do
+  ref="$registry/$project-$env_name-$svc:$tag"
+  if existing="$(crane digest "$ref" 2>/dev/null)"; then
+    [[ "$existing" == "$digest" ]] || { echo "FAIL: $ref exists with $existing, built $digest" >&2; exit 1; }
+    echo "exists  $ref@$digest"
+    continue
+  fi
+  crane push "$dir/$svc" "$ref" >/dev/null
+  got="$(crane digest "$ref")"
+  [[ "$got" == "$digest" ]] || { echo "FAIL: $ref has digest $got, built $digest" >&2; exit 1; }
+  echo "pushed  $ref@$digest"
+done <"$dir/digests.txt"
 echo "image_tag = \"$tag\""

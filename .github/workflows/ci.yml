@@ -1,0 +1,165 @@
+# Pull-request and main-branch checks (SPEC §14, ADR-0017). Every step is a
+# Makefile target, so `make ci` runs the same checks locally. The dev plan
+# runs only for same-repository pull requests once the bootstrap roles exist
+# (repository variable AWS_PLAN_ROLE_ARN).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go · lint, unit, vuln, secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks scans the full history
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('.tool-versions', '.terraform-version', 'scripts/install-tools.sh', 'tools/**') }}
+      - run: make tools
+      - run: make lint
+      - run: make test
+      - run: make vuln
+      - run: make test-secret-scan secret-scan check-ignore
+
+  integration:
+    name: integration (compose emulators)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('.tool-versions', '.terraform-version', 'scripts/install-tools.sh', 'tools/**') }}
+      - run: make tools
+      - run: make test-integration
+      - if: always()
+        run: make down
+
+  images:
+    name: images · build arm64, non-root, Trivy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('.tool-versions', '.terraform-version', 'scripts/install-tools.sh', 'tools/**') }}
+      - run: make tools
+      - run: make images check-images scan-images test-image-secret-scan
+
+  terraform:
+    name: terraform · fmt, validate, tflint, checkov, Trivy, test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('.tool-versions', '.terraform-version', 'scripts/install-tools.sh', 'tools/**') }}
+      - run: make tools
+      - run: make tf-check
+
+  docs:
+    name: docs and workflows · markdown, Mermaid, links, actionlint, zizmor, pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('.tool-versions', '.terraform-version', 'scripts/install-tools.sh', 'tools/**') }}
+      - run: make tools
+      - run: make docs-check check-workflows
+
+  plan-dev:
+    name: terraform plan (dev)
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.AWS_PLAN_ROLE_ARN != ''
+    needs: [terraform]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # No `environment:` here: the plan role trusts only repo:<repo>:pull_request.
+    permissions:
+      contents: read
+      id-token: write # OIDC for the read-only plan role
+      pull-requests: write # plan summary comment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('.tool-versions', '.terraform-version', 'scripts/install-tools.sh', 'tools/**') }}
+      - run: make tools
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: plan-pr-${{ github.event.pull_request.number }}
+      - name: plan
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ github.repository }}
+          OWNER: ${{ vars.OWNER }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          IMAGE_TAG="${HEAD_SHA:0:12}" scripts/ci-config.sh dev
+          make plan ENV=dev
+      - name: post summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "### terraform plan (dev)"
+            echo
+            echo '```text'
+            cat infra/envs/dev/plan-summary.txt
+            echo '```'
+            echo
+            echo "Image tags in this plan use the PR head SHA; the merge deploy uses the merge commit."
+          } >plan-comment.md
+          cat plan-comment.md >>"$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR" --edit-last --create-if-none --body-file plan-comment.md

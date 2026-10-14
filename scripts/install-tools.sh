@@ -131,6 +131,11 @@ ka="$os-$arch"; [[ "$os" == darwin ]] && ka="macos-$arch"
 k6ext=tar.gz; [[ "$os" == darwin ]] && k6ext=zip
 gh_tool k6 grafana/k6 "v$v" "k6-v${v}-${ka}.${k6ext}" "k6-v${v}-checksums.txt" "k6-v${v}-${ka}/k6" "$v"
 
+v="$(version_of crane)"
+co="Linux"; [[ "$os" == darwin ]] && co=Darwin
+ca="x86_64"; [[ "$arch" == arm64 ]] && ca=arm64
+gh_tool crane google/go-containerregistry "v$v" "go-containerregistry_${co}_${ca}.tar.gz" checksums.txt crane "$v"
+
 # --- shellcheck (no checksum file is published; digests pinned here) ---------
 v="$(version_of shellcheck)"
 if need shellcheck "$v"; then

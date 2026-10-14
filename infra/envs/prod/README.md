@@ -113,5 +113,6 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | nightly\_run\_task | Parameters for a manual nightly run (aws ecs run-task), phase 2. |
 | secret\_names | Secret containers to seed with make seed-secrets. |
 | services\_enabled | Whether phase 2 (ECS services and edge) is enabled. |
+| url\_scanning\_enabled | Whether destinations are scanned (smoke tests then expect 422 for the Safe Browsing test URL). |
 | vpc\_id | VPC ID. |
 <!-- END_TF_DOCS -->

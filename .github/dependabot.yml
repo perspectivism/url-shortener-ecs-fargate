@@ -1,0 +1,42 @@
+# Dependency updates (SPEC §14). Pinned CLI tools in .tool-versions and the
+# Valkey/emulator digests in docker-compose.yml are bumped by hand (Dependabot
+# cannot verify the checksums install-tools.sh pins).
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      aws-sdk: { patterns: ["github.com/aws/*"] }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+
+  - package-ecosystem: docker
+    directory: /build
+    schedule: { interval: weekly }
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+
+  - package-ecosystem: terraform
+    directories: [/infra/bootstrap, /infra/envs/dev, /infra/envs/prod]
+    schedule: { interval: weekly }
+    groups:
+      providers: { patterns: ["*"] }
+
+  - package-ecosystem: pip
+    directory: /tools
+    schedule: { interval: monthly }
+    groups:
+      python-tools: { patterns: ["*"] }
+
+  - package-ecosystem: npm
+    directory: /tools
+    schedule: { interval: monthly }
+    groups:
+      node-tools: { patterns: ["*"] }

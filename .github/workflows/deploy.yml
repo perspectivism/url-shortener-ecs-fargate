@@ -1,0 +1,159 @@
+# Continuous deployment (SPEC §14, ADR-0017): build the arm64 images once,
+# push the same digests to dev, apply, smoke; then wait for the `prod`
+# environment's required reviewers and promote the identical digests to prod.
+#
+# Approval model: dev deploys what was merged to the protected main branch (a
+# reviewed pull request); prod deploys only after a reviewer approves the
+# `prod` GitHub environment. APPROVED / PROD_APPLY_CONFIRMED below record those
+# human approvals for scripts/tf-apply.sh and scripts/push-images.sh.
+#
+# Prerequisites (runbook "CI/CD setup"): bootstrap applied, phase 1 applied and
+# secrets seeded, GitHub environments dev/prod with AWS_APPLY_ROLE_ARN,
+# ALERT_EMAIL and the SMOKE_API_KEY secret, repository variables
+# TF_STATE_BUCKET, TF_STATE_KMS_KEY_ARN, AWS_REGION and OWNER.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # never interrupt an apply
+
+jobs:
+  build:
+    name: build arm64 images (once)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.build.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # No tool cache in the release path (cache poisoning); tools are checksum-verified.
+      - run: make tools
+      - id: build
+        run: |
+          make images-oci
+          echo "tag=$(cat dist/images/tag)" >>"$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: images
+          path: dist/images
+          retention-days: 7
+          if-no-files-found: error
+
+  dev:
+    name: deploy dev
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: dev
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # OIDC for the dev apply role
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make tools
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images
+          path: dist/images
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: deploy-dev-${{ github.run_id }}
+      - name: push images (verified digests)
+        env:
+          APPROVED: "yes" # merge to protected main
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: make push-images ENV=dev
+      - name: plan
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ github.repository }}
+          OWNER: ${{ vars.OWNER }}
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+          IMAGE_TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          scripts/ci-config.sh dev
+          make plan ENV=dev
+          cat infra/envs/dev/plan-summary.txt >>"$GITHUB_STEP_SUMMARY"
+      - name: apply the saved plan
+        env:
+          APPROVED: "yes" # merge to protected main
+        run: make apply ENV=dev
+      - name: smoke
+        env:
+          SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}
+        run: make smoke-env ENV=dev
+
+  prod:
+    name: deploy prod (same digests)
+    needs: [build, dev]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: prod # required reviewers: the job waits here for approval
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # OIDC for the prod apply role
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make tools
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: images
+          path: dist/images
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: deploy-prod-${{ github.run_id }}
+      - name: push images (verified digests)
+        env:
+          APPROVED: "yes" # prod environment reviewers approved this run
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: make push-images ENV=prod
+      - name: plan
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ github.repository }}
+          OWNER: ${{ vars.OWNER }}
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+          IMAGE_TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          scripts/ci-config.sh prod
+          make plan ENV=prod
+          cat infra/envs/prod/plan-summary.txt >>"$GITHUB_STEP_SUMMARY"
+      - name: apply the saved plan
+        env:
+          APPROVED: "yes" # prod environment reviewers approved this run
+          PROD_APPLY_CONFIRMED: "yes"
+        run: make apply ENV=prod
+      - name: smoke
+        env:
+          SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}
+        run: make smoke-env ENV=prod

@@ -153,6 +153,10 @@ images: ## Build arm64 images tagged with the git SHA
 			-f build/Dockerfile -t $(IMAGE_REPO)/$$s:$(IMAGE_TAG) --load . >/dev/null || exit 1; \
 	done
 
+.PHONY: images-oci
+images-oci: ## Build the deployable arm64 OCI layouts in dist/images (one digest per service, promoted unchanged)
+	@scripts/build-oci.sh
+
 .PHONY: images-local
 images-local: ## Build native-platform images tagged "local" for the compose app stack
 	@for s in $(SERVICES) shortenerctl; do \
@@ -204,7 +208,7 @@ seed-secrets: ## HUMAN-RUN: prompt for secret values (never echoed) and store th
 	@scripts/seed-secrets.sh $(ENV)
 
 .PHONY: push-images
-push-images: ## Push the commit's arm64 images to ECR for ENV — APPROVAL REQUIRED (APPROVED=yes)
+push-images: ## Push dist/images (make images-oci) to ECR for ENV, verifying digests — APPROVAL REQUIRED (APPROVED=yes)
 	@scripts/push-images.sh $(ENV)
 
 .PHONY: validate-iam
@@ -219,6 +223,10 @@ validate-iam: tools-check ## IAM Access Analyzer validate-policy over every poli
 smoke: tools-check ## Smoke tests against BASE_URL (SMOKE_API_KEY from your environment, never a file)
 	@test -n "$(BASE_URL)" || { echo "usage: make smoke BASE_URL=https://<distribution> (export SMOKE_API_KEY first)" >&2; exit 2; }
 	SMOKE_BASE_URL=$(BASE_URL) go test -count=1 -tags=smoke -timeout=10m -v ./tests/smoke/...
+
+.PHONY: smoke-env
+smoke-env: tools-check ## Smoke tests against deployed ENV using its Terraform outputs (export SMOKE_API_KEY first)
+	@scripts/smoke-env.sh $(ENV)
 
 .PHONY: load
 load: tools-check ## k6 baseline against BASE_URL (export LOAD_API_KEY first; RATE, DURATION optional)
@@ -235,9 +243,19 @@ docs-check: tools-check ## markdownlint, Mermaid render, relative link check
 	@scripts/check-links.sh
 	@python3 -I scripts/check_threat_model.py
 
+.PHONY: check-workflows
+check-workflows: tools-check ## actionlint, zizmor (medium+), every action/image/tool pinned
+	actionlint
+	zizmor --offline --min-severity medium .github/workflows
+	@scripts/check-pins.sh
+
 .PHONY: ci
-ci: ## Everything CI runs, locally
-	$(call nyi,M8)
+ci: ## Everything CI runs, locally (the dev plan needs AWS and runs only in CI)
+	$(MAKE) lint test vuln test-secret-scan secret-scan check-ignore
+	$(MAKE) test-integration
+	$(MAKE) images check-images scan-images test-image-secret-scan
+	$(MAKE) tf-check
+	$(MAKE) docs-check check-workflows
 
 ##@ Teardown
 

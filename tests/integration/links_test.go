@@ -191,6 +191,7 @@ func TestKeyRangeAllocationNoDuplicates(t *testing.T) {
 		mu    sync.Mutex
 		codes = make(map[string]int, total)
 		fails int
+		why   = map[string]int{} // failure reasons, reported on failure
 		wg    sync.WaitGroup
 		next  = make(chan int, total)
 	)
@@ -213,6 +214,7 @@ func TestKeyRangeAllocationNoDuplicates(t *testing.T) {
 				if err != nil {
 					mu.Lock()
 					fails++
+					why["transport: "+err.Error()]++
 					mu.Unlock()
 					continue
 				}
@@ -224,6 +226,7 @@ func TestKeyRangeAllocationNoDuplicates(t *testing.T) {
 					codes[str(body, "code")]++
 				} else {
 					fails++
+					why[fmt.Sprintf("%d %s", resp.StatusCode, str(body, "code"))]++
 				}
 				mu.Unlock()
 			}
@@ -238,6 +241,6 @@ func TestKeyRangeAllocationNoDuplicates(t *testing.T) {
 	}
 	t.Logf("created %d links via 2 instances in %s (%d failures)", len(codes), time.Since(start).Round(time.Millisecond), fails)
 	if fails != 0 || dups != 0 || len(codes) != total {
-		t.Fatalf("unique=%d dups=%d failures=%d, want %d unique, 0 dups, 0 failures", len(codes), dups, fails, total)
+		t.Fatalf("unique=%d dups=%d failures=%d (%v), want %d unique, 0 dups, 0 failures", len(codes), dups, fails, why, total)
 	}
 }

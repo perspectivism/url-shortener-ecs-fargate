@@ -6,7 +6,8 @@
 # real S3 backend. Without it ("local mode": nothing bootstrapped yet) the root
 # is copied to a scratch directory with a temporary local backend override, so
 # the plan shows everything that would be created. Variables come from
-# terraform.tfvars if present, else example.tfvars.
+# terraform.tfvars.json (CI, scripts/ci-config.sh), terraform.tfvars, else
+# example.tfvars (never in CI).
 # Outputs (gitignored): <root>/tfplan, tfplan.json, plan-summary.txt.
 # The plan must pass scripts/check-plan-invariants.sh (log groups, alarms, topics).
 set -euo pipefail
@@ -24,8 +25,15 @@ esac
 dir="$ROOT/$rel"
 aws sts get-caller-identity >/dev/null 2>&1 || { echo "AWS credentials unavailable: plan needs read access (local mode: record as pending)" >&2; exit 1; }
 
-varfile="terraform.tfvars"
-[[ -f "$dir/$varfile" ]] || varfile="example.tfvars"
+varfile=""
+for f in terraform.tfvars.json terraform.tfvars example.tfvars; do
+  [[ -f "$dir/$f" ]] && { varfile="$f"; break; }
+done
+# CI must never plan against empty local state or example values.
+if [[ "${CI:-}" == true ]]; then
+  [[ -f "$dir/backend.hcl" ]] || { echo "CI: no backend.hcl (run scripts/ci-config.sh)" >&2; exit 1; }
+  [[ "$varfile" != example.tfvars ]] || { echo "CI: refusing to plan with example.tfvars" >&2; exit 1; }
+fi
 
 if [[ -f "$dir/backend.hcl" ]]; then
   work="$dir"

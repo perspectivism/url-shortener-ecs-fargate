@@ -73,6 +73,11 @@ output "services_enabled" {
   value       = var.enable_services
 }
 
+output "url_scanning_enabled" {
+  description = "Whether destinations are scanned (smoke tests then expect 422 for the Safe Browsing test URL)."
+  value       = var.url_scanning_enabled
+}
+
 output "base_url" {
   description = "Public base URL (phase 2): smoke tests and short links."
   value       = var.enable_services ? module.edge[0].base_url : null

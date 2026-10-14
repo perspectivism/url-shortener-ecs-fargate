@@ -53,6 +53,22 @@ run "oidc_trust_is_scoped_per_role" {
   }
 
   assert {
+    condition = alltrue([
+      for k, d in data.aws_iam_policy_document.trust : alltrue([
+        for c in one(d.statement).condition :
+        c.test == "StringEquals" && length(c.values) == 1 && alltrue([for v in c.values : !strcontains(v, "*")])
+        if c.variable == "token.actions.githubusercontent.com:sub"
+      ])
+    ])
+    error_message = "OIDC sub conditions must be exact (StringEquals, one value, no wildcards): no branch, fork or repository wildcards."
+  }
+
+  assert {
+    condition     = length(setsubtract(keys(data.aws_iam_policy_document.trust), ["plan", "apply-dev", "apply-prod"])) == 0
+    error_message = "Only the plan role and one apply role per environment trust GitHub."
+  }
+
+  assert {
     condition     = alltrue([for r in concat([aws_iam_role.plan], values(aws_iam_role.apply)) : r.permissions_boundary == aws_iam_policy.boundary.arn])
     error_message = "Every CI role must carry the permissions boundary."
   }
