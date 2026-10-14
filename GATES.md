@@ -11,6 +11,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M1 🔗 Core links (local)](#m1--core-links-local---closed)
 - [M2 📊 Click pipeline (local)](#m2--click-pipeline-local---closed)
 - [M3 🐳 Containers](#m3--containers---closed)
+- [M4 🏗️ Bootstrap, network & data](#m4-️-bootstrap-network--data---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -129,6 +130,46 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - **Regression fixed:** integration runs shared the local Valkey and regenerated the same Sqids codes (fresh tables restart the ID counter), doubling uniques when a container-mode run preceded a process-mode run. Each run now uses a freshly shuffled alphabet and run-scoped owner IDs. An `httpx` shutdown test flake (speculative `StateNew` connection under load) was fixed in the test.
 - **Pending (if closed-local):** none (no cloud checks in M3)
 
+## M4 🏗️ Bootstrap, network & data — 🟡 closed-local
+
+- **Date:** 2026-10-14T18:10Z
+- **Commit:** `1de7ae6` (tag `gate-m4-local`)
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| fmt | `terraform fmt -check -recursive` (in `make tf-check`) | ✅ | clean |
+| validate | `make tf-check` | ✅ | 3 roots (lock files readonly, AWS provider **6.68.0**) + 10 modules |
+| tflint | `make tf-check` | ✅ | 0 issues (AWS ruleset 0.49.0 + all core rules; negative test confirmed findings are reported) |
+| checkov | `make tf-check` | ✅ | 401 passed, 0 failed, 29 skipped — every skip justified inline and listed in the threat model |
+| Trivy config | `make tf-check` | ✅ | 0 MEDIUM/HIGH/CRITICAL (3 HIGH `s3:*` findings fixed by scoping CI S3 actions to `shortener-*` buckets) |
+| terraform test | `make tf-check` | ✅ | 29 runs in 11 suites: CMK encryption (DynamoDB, SQS, S3, Logs, ECR, Valkey, Secrets), PITR on, BPA on, TLS-only bucket/queue policies, no CIDR ingress (SG-referenced only), isolated subnets without a default route, NAT only with scanning, Valkey IAM auth (`user_id == user_name`, disabled default user), secrets readable by nobody until readers are wired, OIDC `aud`/`sub` scoping, CI boundary anti-escalation, per-env apply isolation |
+| dev/prod parity | `scripts/check-env-parity.sh` | ✅ | roots identical except variable defaults |
+| Plan bootstrap | `make plan ENV=bootstrap` | ✅ | read-only, local mode: +26 ~0 −0 |
+| Plan dev | `make plan ENV=dev` | ✅ | read-only, local mode: +93 ~0 −0; isolated subnets in `use1-az2`, `use1-az4` (`use1-az3` excluded); Valkey major 9 |
+| Plan prod | `make plan ENV=prod` | ✅ | read-only, local mode: +101 ~0 −0 (3 AZs, NAT, endpoints in all AZs) |
+| Regression | `make lint test docs-check` | ✅ | lint 0 issues; coverage 97.7%; 21/21 diagrams, 115/115 links |
+
+- **Decisions / ADRs:** ADR-0013, ADR-0014, ADR-0016, ADR-0019. `docs/cost.md` first draft (Price List API, 2026-10-14): dev foundation ≈ $53/month idle (≈ $108 if the 1 GB Valkey minimum applied).
+- **Deviations / assumptions:**
+  - AWS provider pinned `~> 6.68` and locked to **6.68.0** (owner request; newer than the 7-day tool cooldown).
+  - Added two helper modules beyond SPEC §12.2: `s3-bucket` (shared hardened bucket) and `log-bucket` (SSE-S3 log archive: S3 server access logs and ALB logs cannot target SSE-KMS buckets).
+  - Plans ran in **local mode**: no state bucket exists yet, so `make plan` copies the root to a scratch directory with a temporary local backend (empty state) — read-only, never applied.
+  - Security groups for endpoints and Valkey admit *client security groups* that tasks attach (M5), rather than per-service task SGs that do not exist yet; still SG-to-SG, no CIDRs.
+  - Valkey app user ACL `on ~* &* +@all -@dangerous` (to be verified against the real cache).
+  - CI apply roles: broad service actions (single account, ADR-0019) bounded by the permissions boundary, cross-environment tag denies and state-file isolation.
+  - ⚠️ The AWS credentials available in this session are **root-user access keys**; only read-only calls were made. Recommend replacing them with an IAM Identity Center/admin role and deleting the root keys before any apply.
+- **Pending (closed-local):**
+  1. ☁️ Create `infra/bootstrap/terraform.tfvars` (repository, owner), then `make bootstrap` → 👤 approve → `APPROVED=yes make bootstrap-apply` (applies, writes `backend.hcl` ×3, migrates bootstrap state into S3).
+  2. ☁️ `make plan ENV=dev` (S3 backend) → 👤 approve → `APPROVED=yes make apply ENV=dev` (foundation, `enable_services=false`).
+  3. ☁️ Post-apply verification (AWS CLI, read-only): DynamoDB PITR + SSE-KMS on both tables; S3 Block Public Access on all buckets; SQS SSE-KMS + redrive policy; Valkey Serverless `available` with the IAM user group; secrets exist with **no** versions yet (metadata only). Record IDs in GATES.md.
+  4. 👤 `make seed-secrets ENV=dev` (human, own terminal) → ☁️ agent verifies versions exist via `list-secret-version-ids` (metadata only).
+
 ## 📋 Pending cloud checks summary
 
-Filled in as gates close.
+Cumulative, in execution order. Hand this list back when ready to deploy.
+
+1. **M4** — Replace root access keys with a role session (recommended). Create `infra/bootstrap/terraform.tfvars`; `make bootstrap` → approve → `APPROVED=yes make bootstrap-apply`.
+2. **M4** — `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev` (foundation).
+3. **M4** — Post-apply verification of the dev foundation (DynamoDB PITR/SSE, S3 BPA, SQS SSE/redrive, Valkey status/auth, secrets exist without values).
+4. **M4** — 👤 `make seed-secrets ENV=dev`; verify secret versions (metadata only).
