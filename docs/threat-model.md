@@ -1,8 +1,8 @@
 # 🛡️ URL Shortener — Threat Model
 
-> **Status:** v0 (M1) — application-level data flows and STRIDE for the
-> redirect and API paths. Extended for the click pipeline in M2 and completed
-> per SPEC §17.3 (infrastructure, CI/CD, full STRIDE) in M7.
+> **Status:** v0.2 (M2) — application-level data flows and STRIDE for the
+> redirect path, the API and the click pipeline. Completed per SPEC §17.3
+> (infrastructure, CI/CD, full STRIDE) in M7.
 
 ## Contents
 
@@ -12,13 +12,15 @@
 4. [Data flow and trust boundaries](#4-data-flow-and-trust-boundaries)
 5. [STRIDE — redirect path](#5-stride--redirect-path)
 6. [STRIDE — management API](#6-stride--management-api)
-7. [Accepted and residual risks](#7-accepted-and-residual-risks)
-8. [Scanner suppressions](#8-scanner-suppressions)
+7. [STRIDE — click pipeline and nightly job](#7-stride--click-pipeline-and-nightly-job)
+8. [Accepted and residual risks](#8-accepted-and-residual-risks)
+9. [Scanner suppressions](#9-scanner-suppressions)
 
 ## 1. Scope
 
-v0 covers the application layer: the `redirect` and `api` services, their use
-of DynamoDB, Valkey, SQS and Google Safe Browsing, and API-key authentication.
+This version covers the application layer: the `redirect`, `api`, `worker` and
+`nightly` components, their use of DynamoDB, Valkey, SQS, S3 and Google Safe
+Browsing, and API-key authentication.
 Infrastructure (network, IAM, edge, KMS) and CI/CD are covered from M4–M8.
 
 ## 2. Assets
@@ -60,7 +62,13 @@ flowchart LR
     subgraph managed["☁️ AWS managed services"]
         ddb[("DynamoDB links")]
         valkey[("Valkey")]
-        sqs[["SQS click-events"]]
+        sqs[["SQS click-events + DLQ"]]
+        stats[("DynamoDB analytics")]
+        s3[("S3 raw events")]
+    end
+    subgraph batch["⚙️ Pipeline (our code)"]
+        worker["worker"]
+        nightly["nightly"]
     end
     subgraph third["🧪 Third party"]
         gsb["Google Safe Browsing"]
@@ -75,6 +83,13 @@ flowchart LR
     api -->|"conditional writes"| ddb
     api -->|"rate limits · idempotency · DEL"| valkey
     api -->|"urls:search (300 ms, key in header)"| gsb
+    sqs --> worker
+    worker -->|"dedupe + counters"| stats
+    worker -->|"PFADD"| valkey
+    worker -->|"gzip NDJSON"| s3
+    nightly -->|"PFCOUNT → uniques"| stats
+    nightly -->|"rescans"| gsb
+    nightly -->|"disable + DEL"| ddb
 ```
 
 Trust boundaries: Internet → Edge (TLS, WAF), Edge → VPC (only CloudFront can
@@ -116,7 +131,20 @@ scanning is enabled).
 
 L = likelihood, I = impact (H/M/L).
 
-## 7. Accepted and residual risks
+## 7. STRIDE — click pipeline and nightly job
+
+| # | Threat | STRIDE | L | I | Mitigation | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P1 | **Click inflation** by replaying/duplicating messages | T | M | M | Dedupe marker `EVENT#{event_id}` written in the same transaction as the counters; replays cancel the transaction ([`analytics.go`](../internal/store/analytics.go), [ADR-0010](adr/0010-async-click-pipeline.md)); only our tasks can send to the queue (IAM, M5) | Mitigated (integration-tested: 500 replays change nothing) |
+| P2 | **Click inflation by bots / scripted visits** | T | H | L | UA bot heuristic → `bot_clicks`, excluded from `clicks`, dimensions and uniques; WAF rate rules (M5) | Accepted (heuristic; sophisticated bots can pose as browsers) |
+| P3 | **Poison / malformed messages** halt the pipeline | D | M | M | Strict decode with schema version; poison messages are never deleted and go to the DLQ after 5 receives; worker keeps running ([`worker.go`](../internal/worker/worker.go)) | Mitigated |
+| P4 | **Data loss** between SQS and S3 | R | L | M | Messages deleted only after DynamoDB *and* S3 succeed; failed flushes are redelivered; Athena dedupes by `event_id` | Mitigated |
+| P5 | **Analytics privacy** in raw events | I | M | H | Events carry the HMAC visitor ID, referrer host, country and a 256-byte UA — no IP ([ADR-0018](adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)); S3 encryption + access control (M4) | Mitigated |
+| P6 | **Dimension cardinality / storage abuse** via crafted referrers or UAs | D | M | L | Values normalized, control characters stripped, capped at 64 chars; referrer reduced to host | Mitigated |
+| P7 | **Nightly mis-disables** links (scanner false positives) or fails silently | T/R | L | M | Only Safe Browsing verdicts disable; reason `unsafe_url` recorded; admin can re-enable; job exits non-zero on any failed step (alarm, M6); idempotent re-runs | Mitigated |
+| P8 | **Stats IDOR** — reading another owner's analytics | I | M | M | Stats endpoint checks link ownership first (404 otherwise) ([`stats.go`](../internal/api/stats.go)) | Mitigated |
+
+## 8. Accepted and residual risks
 
 | Risk | Rationale |
 | --- | --- |
@@ -125,8 +153,10 @@ L = likelihood, I = impact (H/M/L).
 | Revocation delay ≤ 60 s | In-process auth cache; trades instant revocation for one fewer DynamoDB read per request. |
 | Rate limiting fails open | Availability over strictness while Valkey is down; WAF per-IP rules remain. |
 | Up to 1 h stale redirect if both cache invalidations fail | Alarmed via `CacheInvalidationFailed`; bounded by the positive TTL. |
+| Clicks dropped under overload or SQS outage | Redirect availability wins (SPEC N3); `ClickEventsDropped` is alarmed. |
+| DLQ redrive after 3 days may double count | Dedupe markers expire after 3 days; the runbook requires redriving within that window. |
 
-## 8. Scanner suppressions
+## 9. Scanner suppressions
 
 Every scanner suppression in the repository (`nolint`, `#checkov:skip`,
 `.trivyignore`, tflint ignores, gitleaks allowlists) must have a row here and an

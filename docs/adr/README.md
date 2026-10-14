@@ -14,6 +14,8 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0007](0007-302-redirects-and-no-edge-caching.md) | 302 redirects and no edge caching of redirects | Accepted |
 | [0008](0008-elasticache-serverless-valkey.md) | ElastiCache Serverless Valkey (vs DAX, vs no cache) | Accepted |
 | [0009](0009-valkey-iam-authentication.md) | Valkey IAM authentication (no passwords) | Accepted |
+| [0010](0010-async-click-pipeline.md) | Async click pipeline: SQS, best-effort enqueue, idempotent worker | Accepted |
+| [0011](0011-analytics-hot-and-cold-paths.md) | Analytics hot/cold paths: DynamoDB counters + S3/Athena | Accepted |
 | [0015](0015-api-key-authentication.md) | API key authentication (vs Cognito) | Accepted |
 | [0018](0018-privacy-hmac-visitor-ids-referrer-host-only.md) | Privacy: HMAC visitor IDs, referrer host only | Accepted |
 | [0021](0021-url-safety-scanning-safe-browsing-v5.md) | URL safety scanning with Safe Browsing v5 `urls:search` | Accepted |
