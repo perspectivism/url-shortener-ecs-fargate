@@ -176,24 +176,32 @@ scan-images: tools-check ## Trivy vulnerability + secret scan and build-history 
 ##@ Terraform
 
 .PHONY: tf-check
-tf-check: ## fmt, validate, tflint, checkov, trivy config, terraform test (all roots/modules)
-	$(call nyi,M4)
+tf-check: tools-check ## fmt, validate, tflint, checkov, trivy config, terraform test (all roots/modules)
+	@scripts/tf-check.sh
+
+.PHONY: tf-docs
+tf-docs: tools-check ## Regenerate module/root READMEs with terraform-docs
+	@scripts/tf-docs.sh
 
 .PHONY: plan
-plan: ## terraform plan -out=tfplan for ENV (read-only)
-	$(call nyi,M4)
+plan: tools-check ## terraform plan -out=tfplan for ENV=dev|prod|bootstrap (read-only)
+	@scripts/tf-plan.sh $(ENV)
 
 .PHONY: apply
-apply: ## Apply the saved plan for ENV — APPROVAL REQUIRED
-	$(call nyi,M4)
+apply: tools-check ## Apply the saved plan for ENV — APPROVAL REQUIRED (APPROVED=yes)
+	@scripts/tf-apply.sh $(ENV)
 
 .PHONY: bootstrap
-bootstrap: ## Plan/apply bootstrap (state bucket, OIDC, CI roles) — APPROVAL REQUIRED
-	$(call nyi,M4)
+bootstrap: tools-check ## Plan bootstrap; then APPROVED=yes make bootstrap-apply — APPROVAL REQUIRED
+	@scripts/bootstrap.sh plan
+
+.PHONY: bootstrap-apply
+bootstrap-apply: tools-check ## Apply the saved bootstrap plan and migrate its state — APPROVAL REQUIRED
+	@scripts/bootstrap.sh apply
 
 .PHONY: seed-secrets
 seed-secrets: ## HUMAN-RUN: prompt for secret values (never echoed) and store them
-	$(call nyi,M4)
+	@scripts/seed-secrets.sh $(ENV)
 
 .PHONY: push-images
 push-images: ## Push images to ECR for ENV — APPROVAL REQUIRED
@@ -227,7 +235,7 @@ ci: ## Everything CI runs, locally
 
 .PHONY: destroy
 destroy: ## Destroy one environment — APPROVAL REQUIRED
-	$(call nyi,M4)
+	$(call nyi,M9)
 
 .PHONY: teardown
 teardown: ## Destroy everything incl. bootstrap state bucket, then verify — APPROVAL REQUIRED

@@ -166,4 +166,12 @@ inline justification (AGENTS.md §3).
 | --- | --- | --- | --- |
 | gitleaks | `.gitleaks.toml` | path allowlist `^\.tools/` | Locally installed third-party toolchains (Go stdlib test fixtures, headless Chrome). Gitignored and never committed; only `detect --no-git` reaches it because it does not honour `.gitignore`. Git-history scans are unaffected. |
 | golangci-lint (gosec G404) | `internal/telemetry/telemetry.go` (`NewMetrics`) | weak RNG | `math/rand/v2` only selects which latency samples go into the EMF reservoir; no security decision depends on it. |
+| checkov CKV_AWS_144 | `infra/modules/s3-bucket/main.tf` | S3 cross-region replication | Multi-region is a SPEC non-goal; versioning (+ PITR for DynamoDB) covers recovery. |
+| checkov CKV2_AWS_62 | `infra/modules/s3-bucket/main.tf` | S3 event notifications | No consumer for object events; auditing uses S3 server access logs. |
+| checkov CKV_AWS_109, CKV_AWS_111, CKV_AWS_356 | `infra/modules/kms/main.tf`, `infra/bootstrap/main.tf` (key policies) | `kms:*` on `*` | Standard key-policy root delegation; in a key policy `*` means the key itself. |
+| checkov CKV2_AWS_19 | `infra/modules/network/main.tf` (NAT EIP) | EIP attached to EC2 | The EIP belongs to the NAT gateway. |
+| checkov CKV2_AWS_5 | `infra/modules/network/main.tf`, `infra/modules/cache/main.tf` (client security groups) | SG attached | Client groups are attached to ECS tasks by the ecs-service module (M5). |
+| checkov CKV_AWS_338 | `infra/modules/network/main.tf` (flow logs) | 1-year log retention | 14 days dev / 90 days prod per SPEC §12.6 cost guardrails. |
+| checkov CKV_AWS_394 | `infra/modules/network/main.tf` (AZ data source) | AZ result pinning | Subnets are keyed by AZ ID and use the first `az_count` AZs; a new AZ never moves subnets. |
+| checkov CKV2_AWS_57 | `infra/modules/secrets/main.tf` | automatic rotation | The Safe Browsing key is Google-issued; rotating the salt resets unique-visitor continuity. Both rotate via runbook procedures (ADR-0014). |
 | golangci-lint | `.golangci.yml` exclusion for `_test.go` | gosec, forcetypeassert, unparam, noctx, bodyclose | Test code uses `httptest` in-memory requests/recorders and fixture data; production code remains fully covered by every linter. |

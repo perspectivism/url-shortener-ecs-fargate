@@ -16,7 +16,11 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0009](0009-valkey-iam-authentication.md) | Valkey IAM authentication (no passwords) | Accepted |
 | [0010](0010-async-click-pipeline.md) | Async click pipeline: SQS, best-effort enqueue, idempotent worker | Accepted |
 | [0011](0011-analytics-hot-and-cold-paths.md) | Analytics hot/cold paths: DynamoDB counters + S3/Athena | Accepted |
+| [0013](0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md) | Subnet tiers, VPC endpoints, NAT only for URL scanning | Accepted |
+| [0014](0014-secrets-management.md) | Secrets management: Secrets Manager, out-of-band values, nothing in state | Accepted |
 | [0015](0015-api-key-authentication.md) | API key authentication (vs Cognito) | Accepted |
+| [0016](0016-terraform-layout-environments-s3-native-locking.md) | Terraform layout, environments, S3 native state locking | Accepted |
 | [0018](0018-privacy-hmac-visitor-ids-referrer-host-only.md) | Privacy: HMAC visitor IDs, referrer host only | Accepted |
+| [0019](0019-single-aws-account-for-dev-and-prod.md) | Single AWS account for dev/prod (multi-account as future) | Accepted |
 | [0020](0020-graviton-arm64-and-fargate-spot.md) | Graviton (ARM64) and Fargate Spot usage | Accepted |
 | [0021](0021-url-safety-scanning-safe-browsing-v5.md) | URL safety scanning with Safe Browsing v5 `urls:search` | Accepted |

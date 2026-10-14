@@ -1,0 +1,19 @@
+# terraform-docs configuration for module READMEs (make tf-docs).
+formatter: markdown table
+output:
+  file: README.md
+  mode: inject
+  template: |-
+    <!-- BEGIN_TF_DOCS -->
+    {{ .Content }}
+    <!-- END_TF_DOCS -->
+settings:
+  anchor: false
+  html: false
+  escape: true
+  hide-empty: true
+  lockfile: false
+  indent: 2
+sort:
+  enabled: true
+  by: required
