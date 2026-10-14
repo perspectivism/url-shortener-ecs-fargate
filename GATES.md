@@ -16,6 +16,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M6 📈 Observability & cost](#m6--observability--cost---closed-local)
 - [M7 🛡️ Security hardening](#m7-️-security-hardening---closed-local)
 - [M8 🔁 CI/CD](#m8--cicd---closed-local)
+- [M9 📚 Docs & final review](#m9--docs--final-review---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -295,22 +296,51 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   4. 👤 Open a PR: `ci` green, plan comment posted by `terraform plan (dev)`.
   5. ☁️ Merge: `deploy` builds once, dev pushes with verified digests, applies, smoke passes; the `prod` job **waits for approval** (the agent does not approve).
 
+## M9 📚 Docs & final review — 🟡 closed-local
+
+- **Date:** 2026-10-15T02:30Z
+- **Commit:** see tag `gate-m9-local`
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Docs render and link | `make docs-check` | ✅ | markdownlint 0 issues (50 files); 44/44 Mermaid diagrams; 274/274 relative links |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `84b1deb`; README local quickstart run verbatim: `make up`, key, create, `302 -> https://example.com/hello`, `total_clicks: 1`; integration tests from the clone green (86 s) |
+| ADRs complete | `scripts/check_adrs.py` (in `make docs-check`) | ✅ | 23 ADRs: all 20 required + 0021–0023; all Accepted; MADR sections + Interview Angle; all indexed |
+| Runbook ↔ alarms | `terraform test` (`infra/envs/{dev,prod}`) | ✅ | runbook `### 4.n` sections name exactly the 14 Terraform alarms; negative probe (renamed heading) fails |
+| Teardown tooling | `shellcheck`, `scripts/verify-teardown.sh --dry-run` | ✅ | shellcheck clean (teardown, bootstrap, verify-teardown); 34 read-only checks |
+| `terraform plan -destroy` per root | `make plan-destroy ENV=dev` / `prod`; bootstrap | ⏸️ | needs AWS credentials (session expired) and deployed state → pending |
+| Final full run | `make lint test test-integration tf-check docs-check` (+ `check-workflows`, secret scans, `vuln`) | ✅ | lint 0; coverage 97.7 %; integration 80 s; checkov 884/0/75; tflint 0; Trivy 0; 57 `terraform test` runs; pins OK; gitleaks 22 commits clean; govulncheck clean |
+
+- **Decisions / ADRs:** none new; README, design v1.0, runbook v1.0, cost v1.0.
+- **Deviations / assumptions:**
+  - Runbook alarm coverage is enforced by a Terraform test in the env roots (reads `docs/runbook.md`) rather than a separate script.
+  - The link checker now keeps inline code when slugging headings (GitHub behaviour); before, headings with code produced wrong anchors.
+  - The fresh-clone test links this checkout's verified `./.tools` by default (`FRESH_TOOLS=1` installs from scratch); the quickstart itself needs no tools beyond Docker, make, curl and jq.
+- **Pending (closed-local):** the consolidated list below (items 18–19 are M9's).
+
 ## 📋 Pending cloud checks summary
 
-Cumulative, in execution order. Hand this list back when ready to deploy.
+Complete and ordered; every ☁️ mutating step is plan → 👤 approve → apply of
+that saved plan. Prod is planned only, never applied, unless the owner
+instructs it.
 
-1. **M4** — Replace root access keys with a role session (recommended). Create `infra/bootstrap/terraform.tfvars`; `make bootstrap` → approve → `APPROVED=yes make bootstrap-apply`.
-2. **M4** — `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev` (foundation).
-3. **M4** — Post-apply verification of the dev foundation (DynamoDB PITR/SSE, S3 BPA, SQS SSE/redrive, Valkey status/auth, secrets exist without values).
-4. **M4** — 👤 `make seed-secrets ENV=dev`; verify secret versions (metadata only).
-5. **M5** — `make images`; approve → `APPROVED=yes make push-images ENV=dev`.
-6. **M5** — Phase 2: `enable_services = true`, `image_tag = <sha>`; `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev`.
-7. **M5** — Services steady, targets healthy; API key for dev; `make smoke BASE_URL=<cloudfront>`.
-8. **M5** — ALB DNS unreachable from the internet; manual nightly run succeeds; forced bad deploy triggers circuit-breaker rollback (evidence recorded).
-9. **M6** — `aws login`; read-only `make plan ENV=dev` (both phases, plan invariants OK); dev apply with `alert_email` (approval); 👤 confirm the SNS subscription.
-10. **M6** — `set-alarm-state` on `shortener-dev-dlq` → 👤 email received; k6 baseline (`make load` + `scripts/load-report.sh`) recorded; dashboard widgets show data.
-11. **M6** — ≥ 24 h later: bootstrap `activate_cost_allocation_tag = true` (approval); ≥ 3 days later: measured spend into cost.md §7.
-12. **M7** — Endpoint data perimeter verified by steady services; `make plan ENV=dev` + `make validate-iam ENV=dev` (and `ENV=bootstrap`) clean.
-13. **M7** — Smoke security negatives through CloudFront (`SMOKE_ALB_DNS`, `SMOKE_API_KEY_2`), then `SMOKE_WAF_BURST=true` → 429 with `Retry-After`.
-14. **M8** — 👤 Push to GitHub, fix `CODEOWNERS`; configure variables, environments (prod reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
-15. **M8** — Merge → `deploy`: dev push (verified digests), apply, smoke green; prod job waits for approval.
+1. 👤 **Credentials:** `aws login` (the CLI session expired during M6–M9) with an admin **role session**, not root access keys.
+2. **Bootstrap:** create `infra/bootstrap/terraform.tfvars`; `make bootstrap` → approve → `APPROVED=yes make bootstrap-apply`.
+3. **Dev phase 1:** create `infra/envs/dev/terraform.tfvars` (repository, owner, `alert_email`); `make plan ENV=dev` (plan invariants must print OK) → approve → `APPROVED=yes make apply ENV=dev`.
+4. **Verify foundation:** DynamoDB PITR/SSE, S3 BPA, SQS SSE/redrive, Valkey available with IAM auth, secrets exist without values.
+5. 👤 Confirm the SNS subscription email (`aws sns list-subscriptions-by-topic` shows no `PendingConfirmation`).
+6. 👤 `make seed-secrets ENV=dev`; verify secret versions (metadata only).
+7. **Images:** `make images-oci` (clean commit) → approve → `APPROVED=yes make push-images ENV=dev` (digests verified).
+8. **Dev phase 2:** `enable_services = true`, `image_tag = <printed tag>`; `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev`.
+9. **Services healthy:** all services steady, targets healthy. This also proves the endpoint data perimeter (ECR pull, Logs, Secrets, SQS through endpoints).
+10. **Smoke:** create dev API keys straight into env vars (README step 6); `SMOKE_API_KEY_2=… make smoke-env ENV=dev` (includes ALB-unreachable); then `SMOKE_WAF_BURST=true make smoke-env ENV=dev` last (429 + `Retry-After`).
+11. **Resilience:** manual nightly run succeeds (runbook §5.12); forced bad deploy (non-existent `image_tag`, throwaway apply) → circuit-breaker rollback recorded; re-apply the good tag.
+12. **IAM:** `make plan ENV=dev && make validate-iam ENV=dev` and the same for `ENV=bootstrap` — 0 ERROR/SECURITY_WARNING, 0 unknown.
+13. **Alerts:** `aws cloudwatch set-alarm-state --alarm-name shortener-dev-dlq --state-value ALARM --state-reason test` → 👤 email received; dashboard `shortener-dev` shows data in every widget.
+14. **Load baseline:** `LOAD_API_KEY=… make load BASE_URL=<cloudfront>`; `scripts/load-report.sh dev <start> <end>`; record RPS, p50/p95/p99, error rate, cache hit ratio in GATES (M6).
+15. **Cost:** ≥ 24 h after step 3: bootstrap `activate_cost_allocation_tag = true` → plan → approve → apply; ≥ 3 days: measured spend into cost.md §7.
+16. 👤 **CI/CD setup:** push to GitHub, replace `@OWNER` in `CODEOWNERS`, configure variables, environments (`prod` required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
+17. **CD:** merge → `deploy`: dev push (verified digests), apply, smoke green; the prod job **waits for approval** (not approved by the agent).
+18. **Destroy plans (read-only):** `make plan-destroy ENV=dev` (and `ENV=prod` if deployed); bootstrap: `terraform -chdir=infra/bootstrap plan -destroy -var-file=terraform.tfvars` against the S3 backend — all succeed.
+19. **Only if requested:** `make teardown` (typed confirmation per step), then `make verify-teardown` → nothing left except KMS keys pending deletion.
