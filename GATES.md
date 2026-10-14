@@ -9,6 +9,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 
 - [M0 🧱 Foundations](#m0--foundations---closed)
 - [M1 🔗 Core links (local)](#m1--core-links-local---closed)
+- [M2 📊 Click pipeline (local)](#m2--click-pipeline-local---closed)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -67,6 +68,38 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   - Valkey runs standalone (no TLS/IAM) locally; AWS uses cluster mode + TLS + IAM (enforced by config validation in dev/prod).
   - Lint config: removed `contextcheck` (false positives on idiomatic middleware, before any gate depended on it); test files excluded from gosec/forcetypeassert/unparam/noctx/bodyclose (listed in the threat model suppressions table).
 - **Pending (if closed-local):** none (no cloud checks in M1)
+
+## M2 📊 Click pipeline (local) — ✅ closed
+
+- **Date:** 2026-10-14T14:35Z
+- **Commit:** `143d2b4` (code), `f73974d` (docs) (tag `gate-m2`)
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Exact counts | `TestPipelineExactCounts` | ✅ | 500 clicks over 3 links (460 human, 40 bot): `clicks`/`bot_clicks` exact per link; every dimension sums to the human count |
+| Redelivery | same test | ✅ | all 500 events re-sent to SQS → counts unchanged; worker logged ≥ 500 `WorkerDuplicateEvents` |
+| Bots excluded from uniques | same test | ✅ | uniques = 12 / 7 / 1 distinct human visitors (bots present on every link) |
+| S3 completeness | same test | ✅ | gzip NDJSON under `events/dt=…/hour=…/`; dedupe by `event_id` = exactly 200 / 150 / 150 |
+| SIGTERM flush | `TestSIGTERMFlushesBufferedClicks` | ✅ | 30 sent in full batches, 7 still buffered (stable 3 s); SIGTERM → clean exit → 37 counted |
+| Queue down | `TestQueueDownStillRedirects` | ✅ | SQS endpoint unreachable: 10/10 redirects 302; `ClickEventsDropped` = 10 (EMF) |
+| Valkey down | `TestValkeyDownStillRedirects` | ✅ | cache unreachable: 302 via DynamoDB, 404 still correct; `CacheErrors` ≥ 3 (EMF) |
+| Poison → DLQ | `TestPoisonMessageGoesToDLQ` | ✅ | unparseable message in DLQ after 5 receives (< 2 s); worker alive and still counting |
+| Nightly | `TestNightly` | ✅ | uniques persisted (4, bot excluded); fake-flagged pending link disabled (`unsafe_url`), `l:{code}` removed, redirect 410; re-run: 0 scanned / 0 flagged / 0 disabled, uniques unchanged |
+| Full integration suite | `make test-integration` (×2) | ✅ | 14/14 tests, 67.6 s and 72.4 s |
+| Unit tests + coverage | `make test` | ✅ | `internal/...` 97.7% |
+| Lint / vuln / docs | `make lint`, `make vuln`, `make docs-check` | ✅ | 0 issues; no vulnerabilities; 19/19 diagrams, 103/103 links |
+
+- **Decisions / ADRs:** ADR-0010, ADR-0011. Threat model v0.2 (pipeline STRIDE P1–P8).
+- **Deviations / assumptions:**
+  - `clicks` (humans) and `bot_clicks` are disjoint; dimensions and uniques count humans only.
+  - The nightly job finds "links with yesterday's activity" via a Valkey set `active:{date}` (8-day TTL) written by the worker, instead of scanning DynamoDB.
+  - Valkey failures in the worker degrade uniques but never block counting or push events to the DLQ.
+  - The worker makes poison messages visible immediately (visibility 0) so they reach the DLQ in seconds.
+  - `TransactWriteItems` does not use `ClientRequestToken` (it would mask replays from the duplicate metric); exactly-once relies on the `EVENT#` condition.
+  - Stats default range: last 7 days including today; `uniques` for recent, not-yet-persisted days are read live from the HLL.
+  - `NIGHTLY_DATE` override (default yesterday UTC) for backfills and tests.
+- **Pending (if closed-local):** none (no cloud checks in M2)
 
 ## 📋 Pending cloud checks summary
 
