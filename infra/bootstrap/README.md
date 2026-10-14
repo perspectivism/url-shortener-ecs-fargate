@@ -27,6 +27,7 @@ One-time, per-account root (ADR-0016, ADR-0017): the Terraform state bucket (SSE
 
 | Name | Type |
 | ---- | ---- |
+| [aws_ce_cost_allocation_tag.cost_center](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ce_cost_allocation_tag) | resource |
 | [aws_iam_openid_connect_provider.github](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_openid_connect_provider) | resource |
 | [aws_iam_policy.boundary](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
 | [aws_iam_role.apply](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
@@ -52,6 +53,7 @@ One-time, per-account root (ADR-0016, ADR-0017): the Terraform state bucket (SSE
 | ---- | ----------- | ---- | ------- | :------: |
 | owner | Owner tag value. | `string` | n/a | yes |
 | repository | GitHub repository (owner/name) whose workflows may assume the CI roles. | `string` | n/a | yes |
+| activate\_cost\_allocation\_tag | Activate the CostCenter cost allocation tag. Set to true once Billing has seen the tag (up to 24 hours after the first tagged resources exist). | `bool` | `false` | no |
 | create\_oidc\_provider | Create the GitHub OIDC provider (false if the account already has one for token.actions.githubusercontent.com). | `bool` | `true` | no |
 | environments | Environments that get an apply role (GitHub environment names). | `set(string)` | ```[ "dev", "prod" ]``` | no |
 | force\_destroy | Allow destroying the state bucket with its object versions (set true only for full teardown). | `bool` | `false` | no |

@@ -47,3 +47,9 @@ variable "force_destroy" {
   type        = bool
   default     = false
 }
+
+variable "activate_cost_allocation_tag" {
+  description = "Activate the CostCenter cost allocation tag. Set to true once Billing has seen the tag (up to 24 hours after the first tagged resources exist)."
+  type        = bool
+  default     = false
+}

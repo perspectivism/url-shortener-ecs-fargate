@@ -219,8 +219,12 @@ smoke: tools-check ## Smoke tests against BASE_URL (SMOKE_API_KEY from your envi
 	SMOKE_BASE_URL=$(BASE_URL) go test -count=1 -tags=smoke -timeout=10m -v ./tests/smoke/...
 
 .PHONY: load
-load: ## k6 baseline against BASE_URL
-	$(call nyi,M6)
+load: tools-check ## k6 baseline against BASE_URL (export LOAD_API_KEY first; RATE, DURATION optional)
+	@test -n "$(BASE_URL)" || { echo "usage: make load BASE_URL=https://<distribution> [API_URL=…] (export LOAD_API_KEY first)" >&2; exit 2; }
+	@test -n "$$LOAD_API_KEY" || { echo "export LOAD_API_KEY (links:read, links:write) — never pass it on the command line" >&2; exit 2; }
+	@mkdir -p tests/load/results
+	BASE_URL=$(BASE_URL) API_URL=$(or $(API_URL),$(BASE_URL)) \
+		k6 run --summary-export=tests/load/results/summary.json tests/load/redirect.js
 
 .PHONY: docs-check
 docs-check: tools-check ## markdownlint, Mermaid render, relative link check

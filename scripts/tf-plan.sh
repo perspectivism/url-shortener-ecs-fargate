@@ -8,6 +8,7 @@
 # the plan shows everything that would be created. Variables come from
 # terraform.tfvars if present, else example.tfvars.
 # Outputs (gitignored): <root>/tfplan, tfplan.json, plan-summary.txt.
+# The plan must pass scripts/check-plan-invariants.sh (log groups, alarms, topics).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$ROOT/.tools/bin:$PATH" TF_IN_AUTOMATION=1
@@ -61,3 +62,4 @@ summary="$(jq -r '
   echo "resource types:"
   jq -r '[.resource_changes[] | select(.mode == "managed" and .change.actions != ["no-op"]) | .type] | group_by(.) | map("  \(length)\t\(.[0])") | .[]' "$dir/tfplan.json"
 } | tee "$dir/plan-summary.txt"
+"$ROOT/scripts/check-plan-invariants.sh" "$dir/tfplan.json" | tee -a "$dir/plan-summary.txt"

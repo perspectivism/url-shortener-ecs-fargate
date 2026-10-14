@@ -1,9 +1,11 @@
 # 💸 URL Shortener — Cost Model
 
-> **Status:** first draft (M4). Prices verified **2026-10-14** for **us-east-1**
+> **Status:** v0.3 (M6). Prices verified **2026-10-14** for **us-east-1**
 > with the AWS Price List API (`aws pricing get-products`, read-only) and the
-> public pricing pages linked below. Service-tier numbers (M5) are estimates
-> until measured in M6.
+> public pricing pages linked below. All figures are **estimates** until dev
+> has run for a few days. The measured month-to-date spend (Cost Explorer,
+> `CostCenter = shortener-dev`) is recorded in §7 after the first deployment
+> (pending cloud check, GATES.md).
 
 ## Contents
 
@@ -13,6 +15,7 @@
 4. [Prod — idle baseline (estimate)](#4-prod--idle-baseline-estimate)
 5. [Cost drivers and levers](#5-cost-drivers-and-levers)
 6. [Guardrails](#6-guardrails)
+7. [Measured (dev)](#7-measured-dev)
 
 ## 1. Unit prices
 
@@ -30,6 +33,11 @@
 | Secrets Manager | $0.40/secret-month + $0.05 per 10,000 API calls | `USE1-AWSSecretsManager-Secrets` |
 | AWS WAF | $5/web ACL-month + $1/rule-month + $0.60 per million requests | `Global-WebACLV2`, `Rule`, `Request` |
 | CloudWatch Logs | $0.50/GB ingested, $0.03/GB-month stored | `USE1-DataProcessing-Bytes`, `USE1-TimedStorage-ByteHrs` |
+| CloudWatch custom metrics (EMF, Container Insights) | $0.30/metric-month (first 10,000), prorated hourly; 10 free per account | [pricing](https://aws.amazon.com/cloudwatch/pricing/) |
+| CloudWatch alarms (standard) | $0.10 per alarm metric-month; metric-math alarms are billed per metric in the expression; 10 free per account | [pricing](https://aws.amazon.com/cloudwatch/pricing/) |
+| CloudWatch dashboards | 3 free per account (up to 50 metrics each), then a fixed monthly fee per dashboard | [pricing](https://aws.amazon.com/cloudwatch/pricing/) |
+| Container Insights (standard, Fargate) | 13 metrics per cluster + 15 per service + 10 per task family, charged as custom metrics | [pricing](https://aws.amazon.com/cloudwatch/pricing/) |
+| SNS email, AWS Budgets, Cost Anomaly Detection | first 1,000 emails free; budgets and anomaly detection free at this scale | — |
 | DynamoDB on-demand, S3, SQS, Athena, Glue, ECR storage | pay-per-use; cents at demo scale | — |
 | CloudFront | always-free tier: 1 TB and 10 M requests per month ([pricing](https://aws.amazon.com/cloudfront/pricing/)) | — |
 
@@ -62,8 +70,11 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 | Internal ALB | 1 + minimal LCUs | ≈ 17–20 |
 | WAF | 1 web ACL + 4 managed rule groups + 2 rate rules | ≈ 11 |
 | CloudFront | within the free tier | 0.00 |
-| CloudWatch | dashboard, ~12 alarms, logs | ≈ 5 |
-| **Phase 2 total (dev)** | | **≈ $88–95** |
+| Container Insights | 1 cluster + 2–3 services + 2–4 task families (worker and nightly publish only while running) | ≈ 15–30 |
+| CloudWatch EMF metrics | ~25 metric × service series, published only when non-empty | ≈ 5–8 |
+| CloudWatch alarms | 14 alarms (27 alarm metrics, incl. metric math) + autoscaling alarms | ≈ 3 |
+| CloudWatch Logs, dashboard | app, ALB/CloudFront/WAF logs at demo volume; 1 dashboard (free tier) | ≈ 2 |
+| **Phase 2 total (dev)** | | **≈ $110–135** |
 
 ## 4. Prod — idle baseline (estimate)
 
@@ -72,9 +83,10 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 | Interface endpoints | 5 × 3 AZs | 109.50 |
 | NAT gateway + EIP | 1 (scanning enabled) | 36.50 |
 | Fargate | redirect 2 + api 2 on-demand, worker 1 Spot | ≈ 31 |
-| ALB, WAF, CloudWatch | as dev, larger alarm set | ≈ 35 |
+| ALB, WAF | as dev | ≈ 30 |
+| CloudWatch | Container Insights (more tasks), EMF metrics, alarms, logs (90-day retention) | ≈ 40–55 |
 | Valkey, KMS, Secrets, data | | ≈ 9 |
-| **Total** | | **≈ $220** before traffic |
+| **Total** | | **≈ $255–270** before traffic |
 
 ## 5. Cost drivers and levers
 
@@ -88,10 +100,26 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 | DynamoDB | on-demand with maximum-throughput caps per table |
 | Athena | per-query scan cap (1 GB) and partition projection |
 | Logs | 14-day retention in dev, 90 days in prod; S3 lifecycle expiry |
+| Container Insights | `container_insights` on the cluster module: the running-tasks alarms need it (`DesiredTaskCount`/`RunningTaskCount`); turning it off saves ≈ $15–30/month per environment but loses those alarms |
+| EMF metrics | metrics are emitted only when non-empty, so idle series are not billed; keep dimensions to `Service` (no per-link dimensions) |
 
 ## 6. Guardrails
 
-- AWS Budgets (50/80/100 % actual, 100 % forecast) and Cost Anomaly Detection per
-  environment (M6, `infra/modules/budget`).
+- AWS Budgets per environment (`monthly_budget_usd`: dev $150, prod $400) with
+  notifications at 50/80/100 % actual and 100 % forecast, plus a Cost Anomaly
+  Detection monitor (alerts at ≥ $10 dev / $25 prod impact) — `infra/modules/budget`,
+  [ADR-0022](adr/0022-observability-alerting-and-cost-guardrails.md).
+- Both filter on the `CostCenter = shortener-{env}` cost allocation tag. Activate
+  it once it appears in Billing (`activate_cost_allocation_tag = true` in
+  `infra/bootstrap`); until then they report $0.
+- The dashboard's "Cost" widget shows account-wide `EstimatedCharges` (requires
+  "Receive Billing Alerts" in Billing preferences).
 - `make teardown` removes everything, including the state bucket (M9); KMS keys
   remain "pending deletion" for 7 days and are not billed in that state.
+
+## 7. Measured (dev)
+
+Pending the first deployment (GATES.md, pending cloud checks). After dev has
+run for at least 3 full days, record here the month-to-date spend by service
+from Cost Explorer (filter `CostCenter = shortener-dev`, group by service),
+and the k6 baseline cost (Valkey ECPU, ALB LCU, CloudFront requests).

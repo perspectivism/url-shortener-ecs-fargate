@@ -22,6 +22,7 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 
 | Name | Type |
 | ---- | ---- |
+| [aws_cloudwatch_log_group.container_insights](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
 | [aws_cloudwatch_log_group.exec](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
 | [aws_ecs_cluster.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_cluster) | resource |
 | [aws_ecs_cluster_capacity_providers.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_cluster_capacity_providers) | resource |
@@ -30,10 +31,10 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| kms\_key\_arn | CMK for ECS Exec session encryption and the exec log group. | `string` | n/a | yes |
+| kms\_key\_arn | CMK for ECS Exec session encryption and the cluster's log groups. | `string` | n/a | yes |
 | name\_prefix | Resource name prefix, e.g. "shortener-dev". | `string` | n/a | yes |
 | container\_insights | Container Insights mode: "enhanced", "enabled" or "disabled". | `string` | `"enabled"` | no |
-| log\_retention\_days | Retention of the ECS Exec audit log group. | `number` | `14` | no |
+| log\_retention\_days | Retention of the ECS Exec audit and Container Insights log groups. | `number` | `14` | no |
 
 ## Outputs
 
@@ -41,4 +42,5 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 | ---- | ----------- |
 | cluster\_arn | ECS cluster ARN. |
 | cluster\_name | ECS cluster name. |
+| container\_insights\_log\_group\_name | Container Insights performance log group (retention + CMK). |
 <!-- END_TF_DOCS -->

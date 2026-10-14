@@ -30,6 +30,15 @@ run "cluster_has_spot_insights_and_encrypted_exec_audit" {
     condition     = aws_cloudwatch_log_group.exec.kms_key_id == var.kms_key_arn && aws_cloudwatch_log_group.exec.retention_in_days == 14
     error_message = "The exec audit log group needs CMK encryption and retention."
   }
+
+  assert {
+    condition = (
+      aws_cloudwatch_log_group.container_insights.name == "/aws/ecs/containerinsights/shortener-test/performance" &&
+      aws_cloudwatch_log_group.container_insights.kms_key_id == var.kms_key_arn &&
+      aws_cloudwatch_log_group.container_insights.retention_in_days == 14
+    )
+    error_message = "The Container Insights log group must be Terraform-managed with CMK encryption and retention."
+  }
 }
 
 run "rejects_unknown_insights_mode" {

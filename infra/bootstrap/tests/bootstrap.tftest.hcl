@@ -142,3 +142,25 @@ run "existing_oidc_provider_is_reused" {
     error_message = "No second provider when one exists."
   }
 }
+
+run "cost_allocation_tag_activation_is_a_second_step" {
+  command = plan
+
+  assert {
+    condition     = length(aws_ce_cost_allocation_tag.cost_center) == 0
+    error_message = "Activation is off by default (Billing must have seen the tag first)."
+  }
+}
+
+run "cost_allocation_tag_activates_cost_center" {
+  command = plan
+
+  variables {
+    activate_cost_allocation_tag = true
+  }
+
+  assert {
+    condition     = aws_ce_cost_allocation_tag.cost_center[0].tag_key == "CostCenter" && aws_ce_cost_allocation_tag.cost_center[0].status == "Active"
+    error_message = "CostCenter must be activated for Budgets and Cost Anomaly Detection."
+  }
+}

@@ -15,10 +15,14 @@ for f in "${files[@]}"; do
     fail=1
   fi
 done
+if ! diff -r dev/tests prod/tests >/dev/null 2>&1; then
+  echo "FAIL: envs/dev/tests and envs/prod/tests differ" >&2
+  fail=1
+fi
 # variables.tf may differ only in default values.
 if ! diff <(grep -v '^\s*default' dev/variables.tf) <(grep -v '^\s*default' prod/variables.tf) >/dev/null; then
   echo "FAIL: envs/*/variables.tf differ beyond default values" >&2
   fail=1
 fi
-[[ "$fail" -eq 0 ]] && echo "env parity: ${#files[@]} files identical; variables.tf differs only in defaults"
+[[ "$fail" -eq 0 ]] && echo "env parity: ${#files[@]} files and tests/ identical; variables.tf differs only in defaults"
 exit "$fail"

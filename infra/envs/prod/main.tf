@@ -15,6 +15,8 @@ provider "aws" {
       ManagedBy   = "terraform"
       Repository  = var.repository
       Owner       = var.owner
+      # Budgets and Cost Anomaly Detection filter on this one tag (ADR-0022).
+      CostCenter = "${var.project}-${var.environment}"
     }
   }
 }
@@ -34,8 +36,12 @@ locals {
 module "kms" {
   source = "../../modules/kms"
 
-  name_prefix             = local.name_prefix
-  log_group_name_prefixes = ["/${var.project}/${var.environment}/", "aws-waf-logs-${local.name_prefix}"]
+  name_prefix = local.name_prefix
+  log_group_name_prefixes = [
+    "/${var.project}/${var.environment}/",
+    "aws-waf-logs-${local.name_prefix}",
+    "/aws/ecs/containerinsights/${local.name_prefix}/",
+  ]
 }
 
 module "logs" {

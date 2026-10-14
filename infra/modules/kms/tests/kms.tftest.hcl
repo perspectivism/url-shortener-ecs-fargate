@@ -45,6 +45,19 @@ run "cmk_rotates_and_is_scoped" {
   }
 }
 
+run "alert_publishers_are_account_scoped" {
+  command = plan
+
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.key.statement :
+      s.sid == "AllowAlertPublishersToEncryptedSNS" &&
+      anytrue([for c in s.condition : c.variable == "aws:SourceAccount" && contains(c.values, "123456789012")])
+    ])
+    error_message = "Service principals may use the key only on behalf of this account."
+  }
+}
+
 run "rejects_bad_inputs" {
   command = plan
 

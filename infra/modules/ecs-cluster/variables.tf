@@ -4,12 +4,12 @@ variable "name_prefix" {
 }
 
 variable "kms_key_arn" {
-  description = "CMK for ECS Exec session encryption and the exec log group."
+  description = "CMK for ECS Exec session encryption and the cluster's log groups."
   type        = string
 }
 
 variable "log_retention_days" {
-  description = "Retention of the ECS Exec audit log group."
+  description = "Retention of the ECS Exec audit and Container Insights log groups."
   type        = number
   default     = 14
 }

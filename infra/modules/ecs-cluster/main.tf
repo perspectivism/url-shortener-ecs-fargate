@@ -9,6 +9,17 @@ resource "aws_cloudwatch_log_group" "exec" {
   kms_key_id        = var.kms_key_arn
 }
 
+# Container Insights writes performance events here. Pre-creating the group
+# gives it retention and CMK encryption instead of the service default
+# (never-expire, AWS-owned key); it is created before the cluster so ECS
+# never creates it first.
+resource "aws_cloudwatch_log_group" "container_insights" {
+  #checkov:skip=CKV_AWS_338:Retention is 14 days (dev) / 90 days (prod) per SPEC §12.6.
+  name              = "/aws/ecs/containerinsights/${var.name_prefix}/performance"
+  retention_in_days = var.log_retention_days
+  kms_key_id        = var.kms_key_arn
+}
+
 resource "aws_ecs_cluster" "this" {
   name = var.name_prefix
 
@@ -28,6 +39,8 @@ resource "aws_ecs_cluster" "this" {
       }
     }
   }
+
+  depends_on = [aws_cloudwatch_log_group.container_insights]
 }
 
 resource "aws_ecs_cluster_capacity_providers" "this" {

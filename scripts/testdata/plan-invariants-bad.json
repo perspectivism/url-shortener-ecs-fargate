@@ -1,0 +1,12 @@
+{
+  "resource_changes": [
+    {"address": "module.a.aws_cloudwatch_log_group.no_retention", "mode": "managed", "type": "aws_cloudwatch_log_group",
+     "change": {"actions": ["create"], "after": {"retention_in_days": 0, "kms_key_id": null}, "after_unknown": {"kms_key_id": true}}},
+    {"address": "module.a.aws_cloudwatch_log_group.no_kms", "mode": "managed", "type": "aws_cloudwatch_log_group",
+     "change": {"actions": ["create"], "after": {"retention_in_days": 14, "kms_key_id": null}, "after_unknown": {}}},
+    {"address": "module.b.aws_cloudwatch_metric_alarm.silent", "mode": "managed", "type": "aws_cloudwatch_metric_alarm",
+     "change": {"actions": ["create"], "after": {"alarm_actions": []}, "after_unknown": {}}},
+    {"address": "module.c.aws_sns_topic.plain", "mode": "managed", "type": "aws_sns_topic",
+     "change": {"actions": ["update"], "after": {"kms_master_key_id": ""}, "after_unknown": {}}}
+  ]
+}

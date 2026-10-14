@@ -214,3 +214,21 @@ variable "waf_anonymous_ip_action" {
   type        = string
   default     = "count"
 }
+
+variable "alert_email" {
+  description = "Email subscribed to the alert topic (alarms, budgets, cost anomalies); the recipient must confirm. Null: no subscription."
+  type        = string
+  default     = null
+}
+
+variable "monthly_budget_usd" {
+  description = "Monthly AWS Budget for this environment in USD (docs/cost.md)."
+  type        = number
+  default     = 400
+}
+
+variable "anomaly_threshold_usd" {
+  description = "Cost Anomaly Detection alert threshold (total impact, USD)."
+  type        = number
+  default     = 25
+}

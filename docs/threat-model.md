@@ -1,8 +1,8 @@
 # 🛡️ URL Shortener — Threat Model
 
-> **Status:** v0.2 (M2) — application-level data flows and STRIDE for the
-> redirect path, the API and the click pipeline. Completed per SPEC §17.3
-> (infrastructure, CI/CD, full STRIDE) in M7.
+> **Status:** v0.3 (M6). Application-level data flows and STRIDE for the
+> redirect path, the API and the click pipeline, plus the detection controls
+> added in M6. Completed per SPEC §17.3 (infrastructure, CI/CD, full STRIDE) in M7.
 
 ## Contents
 
@@ -141,7 +141,7 @@ L = likelihood, I = impact (H/M/L).
 | P4 | **Data loss** between SQS and S3 | R | L | M | Messages deleted only after DynamoDB *and* S3 succeed; failed flushes are redelivered; Athena dedupes by `event_id` | Mitigated |
 | P5 | **Analytics privacy** in raw events | I | M | H | Events carry the HMAC visitor ID, referrer host, country and a 256-byte UA — no IP ([ADR-0018](adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)); S3 encryption + access control (M4) | Mitigated |
 | P6 | **Dimension cardinality / storage abuse** via crafted referrers or UAs | D | M | L | Values normalized, control characters stripped, capped at 64 chars; referrer reduced to host | Mitigated |
-| P7 | **Nightly mis-disables** links (scanner false positives) or fails silently | T/R | L | M | Only Safe Browsing verdicts disable; reason `unsafe_url` recorded; admin can re-enable; job exits non-zero on any failed step (alarm, M6); idempotent re-runs | Mitigated |
+| P7 | **Nightly mis-disables** links (scanner false positives) or fails silently | T/R | L | M | Only Safe Browsing verdicts disable; reason `unsafe_url` recorded; admin can re-enable; job exits non-zero on any failed step, alarmed through a log metric filter, Scheduler target errors and an EventBridge rule on non-zero exit ([ADR-0022](adr/0022-observability-alerting-and-cost-guardrails.md)); idempotent re-runs | Mitigated |
 | P8 | **Stats IDOR** — reading another owner's analytics | I | M | M | Stats endpoint checks link ownership first (404 otherwise) ([`stats.go`](../internal/api/stats.go)) | Mitigated |
 
 ## 8. Accepted and residual risks
@@ -152,7 +152,9 @@ L = likelihood, I = impact (H/M/L).
 | Sqids codes are decodable | Reveals approximate creation order/volume; links are not secrets ([ADR-0006](adr/0006-short-code-generation-range-allocation-and-sqids.md)). |
 | Revocation delay ≤ 60 s | In-process auth cache; trades instant revocation for one fewer DynamoDB read per request. |
 | Rate limiting fails open | Availability over strictness while Valkey is down; WAF per-IP rules remain. |
-| Up to 1 h stale redirect if both cache invalidations fail | Alarmed via `CacheInvalidationFailed`; bounded by the positive TTL. |
+| Up to 1 h stale redirect if both cache invalidations fail | Alarmed (`cache-invalidation-failed`, any occurrence); bounded by the positive TTL; the runbook re-issues the disable. |
+| Alert suppression or spoofing | The alert topic is CMK-encrypted and TLS-only. Only this account's alarms, rules (by ARN prefix), Budgets and Cost Anomaly Detection may publish. Deleting alarms or subscriptions needs IAM write access (CI roles are bounded, M7). An unconfirmed or unsubscribed email silently drops alerts, so `ListSubscriptionsByTopic` is part of the gate. |
+| Cost visibility lags up to 24 h | Budgets and Cost Anomaly Detection are guardrails, not limits; per-table DynamoDB throughput caps, Valkey caps and the WAF rate rules bound spend in real time. |
 | Clicks dropped under overload or SQS outage | Redirect availability wins (SPEC N3); `ClickEventsDropped` is alarmed. |
 | DLQ redrive after 3 days may double count | Dedupe markers expire after 3 days; the runbook requires redriving within that window. |
 | HTTP on the CloudFront→ALB hop without a custom domain | Traffic runs over the CloudFront VPC origin's private connection inside the AWS network; set `domain_name` for HTTPS end to end (SPEC §11.3). |

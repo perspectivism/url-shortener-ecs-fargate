@@ -46,7 +46,7 @@ step "trivy config (MEDIUM, HIGH, CRITICAL)"
 trivy config --quiet --severity MEDIUM,HIGH,CRITICAL --exit-code 1 --skip-files "**/tfplan" infra
 
 step "terraform test"
-for d in "${modules[@]}" infra/bootstrap; do
+for d in "${modules[@]}" infra/bootstrap infra/envs/dev infra/envs/prod; do
   if ! compgen -G "$d/tests/*.tftest.hcl" >/dev/null; then
     echo "FAIL: $d has no tests" >&2
     exit 1
@@ -54,6 +54,16 @@ for d in "${modules[@]}" infra/bootstrap; do
   out="$(cd "$d" && terraform test -no-color 2>&1)" || { echo "$out" >&2; echo "terraform test failed: $d" >&2; exit 1; }
   echo "ok   $d: $(grep -E '^(Success|Failure)!' <<<"$out")"
 done
+
+step "plan invariants (self-test) and EMF metrics"
+scripts/check-plan-invariants.sh scripts/testdata/plan-invariants-good.json >/dev/null
+if bad="$(scripts/check-plan-invariants.sh scripts/testdata/plan-invariants-bad.json 2>&1)"; then
+  echo "FAIL: check-plan-invariants.sh accepted a bad plan" >&2
+  exit 1
+fi
+[[ "$(grep -c ': ' <<<"$bad")" -ge 4 ]] || { echo "$bad" >&2; echo "FAIL: not every violation was reported" >&2; exit 1; }
+echo "check-plan-invariants.sh rejects all 4 violations in the bad fixture"
+scripts/check-metrics.sh
 
 step "dev/prod parity"
 scripts/check-env-parity.sh

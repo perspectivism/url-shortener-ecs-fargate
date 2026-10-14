@@ -1,13 +1,15 @@
 # 🏗️ URL Shortener — System Design
 
-> **Status:** in progress — deployment section (M5) written; the full
-> write-up following the interview walkthrough order lands in M9 (SPEC §17.5).
+> **Status:** in progress. The deployment (M5) and observability (M6) sections
+> are written; the full write-up in interview walkthrough order lands in M9
+> (SPEC §17.5).
 
 ## Contents
 
 1. [Requirements](#1-requirements)
 2. [Architecture](#2-architecture)
 3. [Deployment](#3-deployment)
+4. [Observability and cost](#4-observability-and-cost)
 
 ## 1. Requirements
 
@@ -69,3 +71,28 @@ flowchart TB
   log group and read only its own secrets; secret resource policies deny every
   other principal (ADR-0014).
 - Deploys are rolling with the circuit breaker and rollback (ADR-0017).
+
+## 4. Observability and cost
+
+> As built in M6 ([ADR-0022](adr/0022-observability-alerting-and-cost-guardrails.md),
+> [runbook](runbook.md), [cost model](cost.md)).
+
+- **Logs:** slog JSON per service to its own CMK-encrypted log group (14 days
+  dev / 90 days prod). Every log group in every module, including Container
+  Insights, is Terraform-managed with retention and KMS, and every plan is
+  checked for it (`scripts/check-plan-invariants.sh`).
+- **Metrics:** EMF in the same log stream (namespace `Shortener/{env}`,
+  dimension `Service`), aggregated per flush. Infrastructure metrics come
+  from ALB, ECS/Container Insights, SQS, DynamoDB, Scheduler and WAF.
+- **Alarms → SNS:** 14 alarms per environment (the SPEC §13 set plus
+  `cache-invalidation-failed`), an EventBridge rule for non-zero nightly
+  exits, the budget and the anomaly monitor. All of them deliver to one
+  CMK-encrypted topic with an email subscription.
+- **Dashboard:** `shortener-{env}`. It shows golden signals per service, cache
+  hit ratio, the click pipeline, queue and DLQ, ECS utilisation, DynamoDB,
+  WAF and estimated charges.
+- **Load baseline:** `make load` (k6, `tests/load/redirect.js`) plus
+  `scripts/load-report.sh` for the server-side view (ALB p50/p95/p99, 5xx,
+  cache hit ratio).
+- **Cost scoping:** every resource carries `CostCenter = shortener-{env}`,
+  which the budget and Cost Anomaly Detection filter on.

@@ -21,6 +21,7 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | Name | Source | Version |
 | ---- | ------ | ------- |
 | api | ../../modules/ecs-service | n/a |
+| budget | ../../modules/budget | n/a |
 | cache | ../../modules/cache | n/a |
 | dynamodb | ../../modules/dynamodb | n/a |
 | ecr | ../../modules/ecr | n/a |
@@ -32,6 +33,7 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | messaging | ../../modules/messaging | n/a |
 | network | ../../modules/network | n/a |
 | nightly | ../../modules/scheduled-task | n/a |
+| observability | ../../modules/observability | n/a |
 | redirect | ../../modules/ecs-service | n/a |
 | secrets | ../../modules/secrets | n/a |
 | worker | ../../modules/ecs-service | n/a |
@@ -54,6 +56,8 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | ---- | ----------- | ---- | ------- | :------: |
 | owner | Owner tag value (team or person responsible). | `string` | n/a | yes |
 | repository | GitHub repository (owner/name), recorded in the Repository tag. | `string` | n/a | yes |
+| alert\_email | Email subscribed to the alert topic (alarms, budgets, cost anomalies); the recipient must confirm. Null: no subscription. | `string` | `null` | no |
+| anomaly\_threshold\_usd | Cost Anomaly Detection alert threshold (total impact, USD). | `number` | `10` | no |
 | api\_max\_count | Maximum api tasks. | `number` | `2` | no |
 | api\_min\_count | Minimum (and initial) api tasks. | `number` | `1` | no |
 | az\_count | Availability Zones (2 dev / 3 prod). | `number` | `2` | no |
@@ -69,6 +73,7 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | image\_tag | Image tag (git SHA) for every service; required when enable\_services is true. Never "latest". | `string` | `null` | no |
 | interface\_endpoint\_az\_count | AZs with interface endpoint ENIs (1 dev / all prod). | `number` | `1` | no |
 | log\_retention\_days | CloudWatch Logs and log-bucket retention (14 dev / 90 prod). | `number` | `14` | no |
+| monthly\_budget\_usd | Monthly AWS Budget for this environment in USD (docs/cost.md). | `number` | `150` | no |
 | project | Project name: resource prefix and Project tag. | `string` | `"shortener"` | no |
 | redirect\_max\_count | Maximum redirect tasks. | `number` | `2` | no |
 | redirect\_min\_count | Minimum (and initial) redirect tasks. | `number` | `1` | no |
@@ -86,7 +91,9 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 
 | Name | Description |
 | ---- | ----------- |
+| alarm\_names | CloudWatch alarm names keyed by alarm. |
 | alb\_dns\_name | Internal ALB DNS name (phase 2) — must NOT be reachable from the internet. |
+| alert\_topic\_arn | SNS topic for alarms, budgets and cost anomalies (aws cloudwatch set-alarm-state test target). |
 | analytics\_table | Analytics table name (ANALYTICS\_TABLE). |
 | athena\_workgroup | Athena workgroup for click analytics. |
 | base\_url | Public base URL (phase 2): smoke tests and short links. |
@@ -96,6 +103,7 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | click\_dlq\_url | Click-event DLQ URL. |
 | click\_queue\_url | Click-event queue URL (CLICK\_QUEUE\_URL). |
 | cloudfront\_distribution\_id | CloudFront distribution ID (phase 2). |
+| dashboard\_name | CloudWatch dashboard (phase 2). |
 | ecr\_repository\_urls | ECR repository URL per service. |
 | ecs\_cluster\_name | ECS cluster name (phase 2). |
 | events\_bucket | Raw click-event bucket (EVENTS\_BUCKET). |

@@ -32,3 +32,8 @@ output "log_group_name" {
   description = "Task log group."
   value       = aws_cloudwatch_log_group.this.name
 }
+
+output "schedule_group_name" {
+  description = "EventBridge Scheduler schedule group (CloudWatch dimension ScheduleGroup)."
+  value       = aws_scheduler_schedule_group.this.name
+}

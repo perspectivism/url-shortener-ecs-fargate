@@ -101,3 +101,18 @@ output "nightly_run_task" {
     security_groups = concat([module.nightly[0].security_group_id], local.client_sgs)
   } : null
 }
+
+output "alert_topic_arn" {
+  description = "SNS topic for alarms, budgets and cost anomalies (aws cloudwatch set-alarm-state test target)."
+  value       = module.observability.topic_arn
+}
+
+output "alarm_names" {
+  description = "CloudWatch alarm names keyed by alarm."
+  value       = module.observability.alarm_names
+}
+
+output "dashboard_name" {
+  description = "CloudWatch dashboard (phase 2)."
+  value       = module.observability.dashboard_name
+}

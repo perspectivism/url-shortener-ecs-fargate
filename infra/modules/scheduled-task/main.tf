@@ -255,8 +255,15 @@ resource "aws_iam_role_policy" "scheduler" {
   policy = data.aws_iam_policy_document.scheduler.json
 }
 
+# A dedicated group scopes the AWS/Scheduler metrics (dimension ScheduleGroup)
+# to this environment's schedules, so the nightly alarm sees nothing else.
+resource "aws_scheduler_schedule_group" "this" {
+  name = local.name
+}
+
 resource "aws_scheduler_schedule" "this" {
   name                         = local.name
+  group_name                   = aws_scheduler_schedule_group.this.name
   description                  = "${var.task} (${var.name_prefix})"
   schedule_expression          = var.schedule_expression
   schedule_expression_timezone = "UTC"

@@ -31,6 +31,7 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 | [aws_iam_role_policy.scheduler](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_role_policy.task](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_scheduler_schedule.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/scheduler_schedule) | resource |
+| [aws_scheduler_schedule_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/scheduler_schedule_group) | resource |
 | [aws_security_group.task](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
 | [aws_vpc_security_group_egress_rule.gateway_endpoints](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
 | [aws_vpc_security_group_egress_rule.internet_https](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
@@ -72,6 +73,7 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 | ---- | ----------- |
 | execution\_role\_arn | Execution role ARN (secret reader). |
 | log\_group\_name | Task log group. |
+| schedule\_group\_name | EventBridge Scheduler schedule group (CloudWatch dimension ScheduleGroup). |
 | schedule\_name | EventBridge Scheduler schedule name. |
 | security\_group\_id | Task security group ID (for manual run-task). |
 | task\_definition\_arn | Task definition ARN (for manual runs: aws ecs run-task). |

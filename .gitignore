@@ -30,6 +30,7 @@ override.tf.json
 /bin/
 /dist/
 /coverage/
+/tests/load/results/
 *.out
 *.test
 tools/node_modules/

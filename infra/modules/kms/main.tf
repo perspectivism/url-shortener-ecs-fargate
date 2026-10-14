@@ -55,16 +55,21 @@ data "aws_iam_policy_document" "key" {
     }
   }
 
-  # CloudWatch alarms publish to the CMK-encrypted SNS topic (M6).
+  # Services that publish to the CMK-encrypted alarm topic (observability module).
   statement {
-    sid       = "AllowCloudWatchAlarmsToSNS"
+    sid       = "AllowAlertPublishersToEncryptedSNS"
     effect    = "Allow"
     actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
     resources = ["*"]
 
     principals {
-      type        = "Service"
-      identifiers = ["cloudwatch.amazonaws.com"]
+      type = "Service"
+      identifiers = [
+        "cloudwatch.amazonaws.com",
+        "budgets.amazonaws.com",
+        "costalerts.amazonaws.com",
+        "events.amazonaws.com",
+      ]
     }
 
     condition {

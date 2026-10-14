@@ -10,6 +10,7 @@ provider "aws" {
       ManagedBy   = "terraform"
       Repository  = var.repository
       Owner       = var.owner
+      CostCenter  = "${var.project}-shared"
     }
   }
 }
@@ -364,4 +365,17 @@ resource "aws_iam_role_policy" "apply" {
   name   = "terraform-apply"
   role   = aws_iam_role.apply[each.key].id
   policy = data.aws_iam_policy_document.apply[each.key].json
+}
+
+# --- Cost allocation tag (ADR-0022) ------------------------------------------------
+#
+# Budgets and Cost Anomaly Detection filter each environment on CostCenter.
+# Billing only lists a tag key after it has seen tagged usage (up to 24 h), so
+# activation is a second step: apply once, then set activate_cost_allocation_tag.
+
+resource "aws_ce_cost_allocation_tag" "cost_center" {
+  count = var.activate_cost_allocation_tag ? 1 : 0
+
+  tag_key = "CostCenter"
+  status  = "Active"
 }
