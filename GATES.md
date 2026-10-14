@@ -14,6 +14,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M4 🏗️ Bootstrap, network & data](#m4-️-bootstrap-network--data---closed-local)
 - [M5 🚀 ECS services & edge](#m5--ecs-services--edge---closed-local)
 - [M6 📈 Observability & cost](#m6--observability--cost---closed-local)
+- [M7 🛡️ Security hardening](#m7-️-security-hardening---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -235,6 +236,34 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   6. ☁️ Dashboard `shortener-dev` shows data in every widget (Cost widget needs "Receive Billing Alerts").
   7. ☁️ After ≥ 24 h: `activate_cost_allocation_tag = true` in bootstrap → plan → approve → apply; after ≥ 3 days record measured spend in cost.md §7.
 
+## M7 🛡️ Security hardening — 🟡 closed-local
+
+- **Date:** 2026-10-15T00:40Z
+- **Commit:** see tag `gate-m7-local`
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| IAM wildcards justified (offline) | `scripts/check_iam_wildcards.py` (in `make tf-check`) | ✅ | 84 policy statements; every Allow with `*`, `service:*`, resource `*` or principal `*` carries an inline justification; self-test fixture: all 4 seeded violations reported |
+| Access Analyzer `validate-policy` | `make validate-iam ENV=dev` | ⏸️ | script built and fails closed (expired AWS session → exit 255; unknown policies → fail); extraction self-test in `tf-check` (3 policies, 1 unknown); dry run over the M5 local plan found 35 policies (20 rendered only at apply) → **pending: run against state after the first apply** |
+| checkov / Trivy / tflint, zero unsuppressed MEDIUM+ | `make tf-check` | ✅ | checkov 884 passed / 0 failed / 75 skipped; Trivy 0; tflint 0 |
+| Suppressions listed in threat model | `scripts/check_suppressions.py` (in `make tf-check`) | ✅ | 41 suppressions, each with a row naming rule and file; negative probe detected |
+| `gitleaks` over full history | `make secret-scan` | ✅ | working tree + 17 commits: no leaks; self-test detects the planted key |
+| STRIDE rows mitigated/accepted | `scripts/check_threat_model.py` (in `make docs-check`) | ✅ | 51 rows (R1–R10, A1–A12, P1–P8, I1–I12, C1–C9), none open; §17.3 coverage matrix |
+| terraform test | `make tf-check` | ✅ | 57 runs in 19 suites; new: S3 endpoint names buckets/actions, interface endpoints per-service + `aws:PrincipalAccount`/`aws:ResourceAccount`, WAF rate rules before managed groups, 429 carries `Retry-After` |
+| Smoke security negatives (local) | `make smoke` against the local stack | ✅ | 422 unsafe URL (fake scanner), 413, cross-owner 404 ×3 (two keys), invalid key 401, `TestALBNotPublic` fails to connect (unroutable probe address); `TestWAFRateLimit` skipped locally (no WAF) |
+| Regression | `make lint test docs-check vuln` | ✅ | lint 0 issues; coverage 97.7 %; 25/25 diagrams, 164/164 links; govulncheck: no vulnerabilities |
+
+- **Decisions / ADRs:** ADR-0023 (IAM review, VPC endpoint data perimeter, WAF tuning). Threat model v1.0.
+- **Deviations / assumptions:**
+  - Interface endpoints now carry per-service data-perimeter policies (`aws:PrincipalAccount` + `aws:ResourceAccount`); the S3 gateway endpoint is limited to `<project>-<env>-*` buckets and object actions. Not testable offline — the first deploy verifies them (tasks must pull images, write logs and read secrets).
+  - WAF rate rules moved ahead of the managed groups (priorities 1–2) so they count every request; `GenericRFI_BODY` stays blocking (accepted trade-off, threat model I9).
+  - Access Analyzer validation requires AWS credentials and rendered policies; against an empty-state plan most policies are unknown, so it is a post-apply check.
+- **Pending (closed-local):**
+  1. ☁️ After the first dev apply: `make plan ENV=dev` then `make validate-iam ENV=dev` — 0 ERROR / SECURITY_WARNING, 0 unknown (also `ENV=bootstrap`).
+  2. ☁️ Smoke security negatives through CloudFront: `SMOKE_ALB_DNS=$(terraform output -raw alb_dns_name) SMOKE_API_KEY_2=<second owner> make smoke BASE_URL=<cloudfront>`; then `SMOKE_WAF_BURST=true` for the 429 burst (last; rate-limits the runner IP ≈ 1 min). With scanning enabled (prod-like) also `SMOKE_EXPECT_SCANNING=true` → 422.
+  3. ☁️ Endpoint data perimeter works: all services steady (ECR pull, logs, secrets through the endpoints); clicks reach the worker (SQS endpoint).
+
 ## 📋 Pending cloud checks summary
 
 Cumulative, in execution order. Hand this list back when ready to deploy.
@@ -250,3 +279,5 @@ Cumulative, in execution order. Hand this list back when ready to deploy.
 9. **M6** — `aws login`; read-only `make plan ENV=dev` (both phases, plan invariants OK); dev apply with `alert_email` (approval); 👤 confirm the SNS subscription.
 10. **M6** — `set-alarm-state` on `shortener-dev-dlq` → 👤 email received; k6 baseline (`make load` + `scripts/load-report.sh`) recorded; dashboard widgets show data.
 11. **M6** — ≥ 24 h later: bootstrap `activate_cost_allocation_tag = true` (approval); ≥ 3 days later: measured spend into cost.md §7.
+12. **M7** — Endpoint data perimeter verified by steady services; `make plan ENV=dev` + `make validate-iam ENV=dev` (and `ENV=bootstrap`) clean.
+13. **M7** — Smoke security negatives through CloudFront (`SMOKE_ALB_DNS`, `SMOKE_API_KEY_2`), then `SMOKE_WAF_BURST=true` → 429 with `Retry-After`.
