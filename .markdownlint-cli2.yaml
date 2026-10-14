@@ -1,0 +1,12 @@
+# File selection for markdownlint-cli2 (rules live in .markdownlint.yaml).
+globs:
+  - "**/*.md"
+ignores:
+  - ".tools/**"
+  - "**/node_modules/**"
+  - "**/.terraform/**"
+  # Owner-provided input docs: style lint only is skipped (no formatting edits
+  # authorized). They remain covered by the link and Mermaid checks. GATES.md M0.
+  - "SPEC.md"
+  - "AGENTS.md"
+gitignore: true

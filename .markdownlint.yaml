@@ -1,0 +1,13 @@
+# markdownlint rules for project documentation.
+default: true
+MD013: false # line length: tables, Mermaid and long URLs make this noise
+MD024:
+  siblings_only: true # runbook/ADR sections legitimately repeat headings under different parents
+MD033:
+  allowed_elements: [br, details, summary, a, sub, sup, kbd]
+MD036: false # bold lines are used as labels in ADRs and the README walkthrough
+MD041: true
+MD046:
+  style: fenced
+MD060:
+  style: compact # one space around cell content; delimiter rows written as "| --- |"

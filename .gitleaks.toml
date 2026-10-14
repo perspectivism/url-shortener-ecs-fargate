@@ -1,0 +1,20 @@
+# gitleaks configuration: the default ruleset plus project-specific secrets.
+title = "url-shortener gitleaks config"
+
+[extend]
+useDefault = true
+
+# Application API keys: shortener_{env}_{base64url(32 random bytes)} (ADR-0015).
+[[rules]]
+id = "shortener-api-key"
+description = "URL Shortener API key"
+regex = '''\bshortener_(?:dev|prod|local|test)_[A-Za-z0-9_-]{43}\b'''
+keywords = ["shortener_"]
+
+# Scope: ./.tools holds locally installed third-party toolchains (Go stdlib test
+# fixtures, headless Chrome). It is gitignored and never committed, but
+# `gitleaks detect --no-git` walks the filesystem without honouring .gitignore.
+# Listed in docs/threat-model.md "Scanner suppressions".
+[[allowlists]]
+description = "Locally installed toolchain (gitignored, never committed)"
+paths = ['''^\.tools/''']

@@ -1,0 +1,65 @@
+# golangci-lint v2 configuration.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - copyloopvar
+    - errname
+    - errorlint
+    - forcetypeassert
+    - gochecknoinits # AGENTS §8: no init() side effects
+    - gocritic
+    - gosec
+    - intrange
+    - misspell
+    - noctx
+    - nolintlint
+    - revive
+    - sloglint
+    - unconvert
+    - unparam
+    - usestdlibvars
+  settings:
+    errcheck:
+      check-type-assertions: true
+    nolintlint:
+      require-explanation: true # AGENTS §3: every suppression is justified inline
+      require-specific: true
+    sloglint:
+      no-mixed-args: true
+      kv-only: false
+      attr-only: false
+      context: scope
+    revive:
+      rules:
+        - name: exported
+          disabled: true # internal/ packages; doc comments are reviewed, not machine-enforced
+        - name: package-comments
+          disabled: true
+  exclusions:
+    generated: strict
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [gosec, forcetypeassert, unparam]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/shortener/url-shortener-ecs-fargate

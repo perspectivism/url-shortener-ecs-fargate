@@ -1,0 +1,44 @@
+# Pre-commit hooks. All hooks are local and run the pinned binaries in ./.tools
+# (install with `make tools`, enable with `.tools/bin/pre-commit install`).
+# Never bypass with --no-verify (AGENTS.md §3).
+repos:
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (staged changes)
+        entry: scripts/with-tools.sh gitleaks git --pre-commit --staged --redact --no-banner --verbose
+        language: system
+        pass_filenames: false
+      - id: go-fmt
+        name: gofmt / goimports
+        entry: scripts/with-tools.sh golangci-lint fmt --diff
+        language: system
+        types: [go]
+        pass_filenames: false
+      - id: golangci-lint
+        name: golangci-lint
+        entry: scripts/with-tools.sh golangci-lint run ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+      - id: terraform-fmt
+        name: terraform fmt
+        entry: scripts/with-tools.sh terraform fmt -check -diff
+        language: system
+        files: \.(tf|tftest\.hcl)$
+      - id: markdownlint
+        name: markdownlint
+        entry: scripts/with-tools.sh markdownlint-cli2
+        language: system
+        types: [markdown]
+        pass_filenames: false # the config's globs already cover the repo
+      - id: shellcheck
+        name: shellcheck
+        entry: scripts/with-tools.sh shellcheck
+        language: system
+        types: [shell]
+      - id: actionlint
+        name: actionlint
+        entry: scripts/with-tools.sh actionlint
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$

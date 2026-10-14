@@ -1,0 +1,43 @@
+# --- Secrets & local env (SPEC §11.2) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.example.tfvars
+!example.tfvars
+backend.hcl
+!backend.hcl.example
+tfplan
+*.tfplan
+crash.log
+crash.*.log
+.terraform.tfstate.lock.info
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# --- Tooling / build output ---
+/.tools/
+/bin/
+/dist/
+/coverage/
+*.out
+*.test
+tools/node_modules/
+node_modules/
+__pycache__/
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store

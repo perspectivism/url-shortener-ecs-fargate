@@ -1,0 +1,9 @@
+{
+  "name": "url-shortener-tools",
+  "private": true,
+  "description": "Pinned Node-based developer tools (installed into .tools/node by make tools).",
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "12.0.0",
+    "markdownlint-cli2": "0.23.3"
+  }
+}
