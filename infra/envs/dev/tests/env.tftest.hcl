@@ -79,4 +79,16 @@ run "phase2_services_with_every_spec_alarm" {
     condition     = module.observability.dashboard_name == "shortener-${var.environment}"
     error_message = "Phase 2 has the dashboard."
   }
+
+  # The runbook must have a "### 4.n" section naming every alarm, and every
+  # alarm those sections name must exist (SPEC §17.4, M9 gate).
+  assert {
+    condition = (
+      toset(flatten([
+        for h in regexall("(?m)^### 4\\.[0-9]+ (.*)$", file("../../../docs/runbook.md")) :
+        [for m in regexall("`([a-z0-9-]+)`", h[0]) : m[0]]
+      ])) == toset(keys(module.observability.alarm_names))
+    )
+    error_message = "docs/runbook.md alarm sections (### 4.n `name`) must match the Terraform alarms exactly."
+  }
 }

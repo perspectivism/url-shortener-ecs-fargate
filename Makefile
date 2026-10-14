@@ -19,11 +19,6 @@ ENV      ?= dev
 GIT_SHA  := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)$(shell git status --porcelain 2>/dev/null | grep -q . && echo -dirty)
 COVERAGE_MIN ?= 80
 
-# Fail loudly for targets that belong to a later milestone (never a silent success).
-define nyi
-	@echo "make $@: not yet implemented ($(1))" >&2; exit 1
-endef
-
 ##@ General
 
 .PHONY: help
@@ -204,8 +199,8 @@ bootstrap-apply: tools-check ## Apply the saved bootstrap plan and migrate its s
 	@scripts/bootstrap.sh apply
 
 .PHONY: seed-secrets
-seed-secrets: ## HUMAN-RUN: prompt for secret values (never echoed) and store them
-	@scripts/seed-secrets.sh $(ENV)
+seed-secrets: ## HUMAN-RUN: prompt for secret values (never echoed) and store them (ROTATE=1 to replace)
+	@scripts/seed-secrets.sh $(ENV) $(if $(ROTATE),--rotate)
 
 .PHONY: push-images
 push-images: ## Push dist/images (make images-oci) to ECR for ENV, verifying digests — APPROVAL REQUIRED (APPROVED=yes)
@@ -242,12 +237,17 @@ docs-check: tools-check ## markdownlint, Mermaid render, relative link check
 	@scripts/check-mermaid.sh
 	@scripts/check-links.sh
 	@python3 -I scripts/check_threat_model.py
+	@python3 -I scripts/check_adrs.py
 
 .PHONY: check-workflows
 check-workflows: tools-check ## actionlint, zizmor (medium+), every action/image/tool pinned
 	actionlint
 	zizmor --offline --min-severity medium .github/workflows
 	@scripts/check-pins.sh
+
+.PHONY: fresh-clone-test
+fresh-clone-test: ## Clone HEAD to a temp dir, run the README local quickstart verbatim, then integration tests
+	@scripts/fresh-clone-test.sh
 
 .PHONY: ci
 ci: ## Everything CI runs, locally (the dev plan needs AWS and runs only in CI)
@@ -259,14 +259,18 @@ ci: ## Everything CI runs, locally (the dev plan needs AWS and runs only in CI)
 
 ##@ Teardown
 
+.PHONY: plan-destroy
+plan-destroy: tools-check ## Save + summarize a destroy plan for ENV (read-only)
+	@scripts/teardown.sh plan-destroy $(ENV)
+
 .PHONY: destroy
-destroy: ## Destroy one environment — APPROVAL REQUIRED
-	$(call nyi,M9)
+destroy: tools-check ## Apply ENV's saved destroy plan — APPROVAL REQUIRED (APPROVED=yes; prod also PROD_APPLY_CONFIRMED=yes after `scripts/teardown.sh unprotect prod`)
+	@scripts/teardown.sh destroy $(ENV)
 
 .PHONY: teardown
-teardown: ## Destroy everything incl. bootstrap state bucket, then verify — APPROVAL REQUIRED
-	$(call nyi,M9)
+teardown: tools-check ## Interactive full teardown prod → dev → bootstrap, then verify — typed APPROVAL at each step
+	@scripts/teardown.sh all
 
 .PHONY: verify-teardown
-verify-teardown: ## Report leftover project resources (read-only)
-	$(call nyi,M9)
+verify-teardown: ## Report leftover project resources (read-only; KMS keys pending deletion are expected)
+	@scripts/verify-teardown.sh

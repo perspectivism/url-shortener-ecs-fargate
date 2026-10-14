@@ -1,6 +1,6 @@
 # 💸 URL Shortener — Cost Model
 
-> **Status:** v0.3 (M6). Prices verified **2026-10-14** for **us-east-1**
+> **Status:** v1.0 (M9). Prices verified **2026-10-14** for **us-east-1**
 > with the AWS Price List API (`aws pricing get-products`, read-only) and the
 > public pricing pages linked below. All figures are **estimates** until dev
 > has run for a few days. The measured month-to-date spend (Cost Explorer,
@@ -114,8 +114,10 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
   `infra/bootstrap`); until then they report $0.
 - The dashboard's "Cost" widget shows account-wide `EstimatedCharges` (requires
   "Receive Billing Alerts" in Billing preferences).
-- `make teardown` removes everything, including the state bucket (M9); KMS keys
-  remain "pending deletion" for 7 days and are not billed in that state.
+- `make teardown` removes everything, including the state bucket, from saved and
+  confirmed plans; `make verify-teardown` checks 34 resource categories for
+  leftovers. KMS keys remain "pending deletion" for 7 days and are not billed
+  in that state ([runbook §5.14](runbook.md#514-full-teardown)).
 
 ## 7. Measured (dev)
 

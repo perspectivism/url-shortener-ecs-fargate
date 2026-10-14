@@ -6,6 +6,7 @@
 #   apply    apply the saved plan locally, then migrate bootstrap's own state
 #            into the new bucket and write backend.hcl for bootstrap/dev/prod
 #   unmigrate  move bootstrap state back to a local backend (teardown step)
+#   unprotect / plan-destroy / destroy   teardown steps (SPEC §19.1), each approved
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$ROOT/.tools/bin:$PATH" TF_IN_AUTOMATION=1
@@ -62,8 +63,31 @@ case "${1:-}" in
     terraform init -input=false -migrate-state -force-copy
     echo "bootstrap state is local again (infra/bootstrap/terraform.tfstate)"
     ;;
+  # --- Teardown (SPEC §19.1): unprotect → unmigrate → plan-destroy → destroy ---
+  unprotect)
+    # The state bucket only empties itself (all versions) with force_destroy = true.
+    [[ -f backend.hcl && ! -f backend_override.tf ]] || { echo "unprotect runs against the S3 backend (before unmigrate)" >&2; exit 1; }
+    terraform init -input=false -lockfile=readonly -backend-config=backend.hcl >/dev/null
+    terraform plan -input=false -var-file="$varfile" -var force_destroy=true -out=tfplan-unprotect
+    need_approval
+    terraform apply -input=false tfplan-unprotect
+    rm -f tfplan-unprotect
+    ;;
+  plan-destroy)
+    [[ -f backend_override.tf ]] || { echo "run unmigrate first: the state bucket cannot be destroyed while it holds this state" >&2; exit 1; }
+    terraform init -input=false -lockfile=readonly >/dev/null
+    terraform plan -destroy -input=false -var-file="$varfile" -var force_destroy=true -out=tfplan-destroy
+    ;;
+  destroy)
+    need_approval
+    [[ -f tfplan-destroy ]] || { echo "run bootstrap.sh plan-destroy first" >&2; exit 1; }
+    terraform apply -input=false tfplan-destroy
+    rm -f tfplan-destroy terraform.tfstate terraform.tfstate.backup backend_override.tf tfplan tfplan.json plan-summary.txt
+    rm -f "$ROOT/infra/bootstrap/backend.hcl" "$ROOT/infra/envs/dev/backend.hcl" "$ROOT/infra/envs/prod/backend.hcl"
+    echo "bootstrap destroyed; local state and backend configs removed"
+    ;;
   *)
-    echo "usage: bootstrap.sh plan|apply|unmigrate" >&2
+    echo "usage: bootstrap.sh plan|apply|unmigrate|unprotect|plan-destroy|destroy" >&2
     exit 2
     ;;
 esac

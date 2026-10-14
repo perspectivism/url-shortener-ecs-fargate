@@ -32,15 +32,21 @@ def github_slug(text: str) -> str:
     return "".join(out).replace(" ", "-")
 
 
-def strip_code(lines):
-    """Yields (lineno, text) for lines outside fenced code blocks, inline code removed."""
+def outside_fences(lines):
+    """Yields (lineno, text) for lines outside fenced code blocks."""
     in_fence = False
     for i, line in enumerate(lines, 1):
         if FENCE_RE.match(line):
             in_fence = not in_fence
             continue
         if not in_fence:
-            yield i, INLINE_CODE_RE.sub("", line)
+            yield i, line
+
+
+def strip_code(lines):
+    """Yields (lineno, text) for lines outside fenced code blocks, inline code removed."""
+    for i, line in outside_fences(lines):
+        yield i, INLINE_CODE_RE.sub("", line)
 
 
 def anchors_for(path, cache):
@@ -48,8 +54,9 @@ def anchors_for(path, cache):
         slugs = set()
         counts = {}
         with open(path, encoding="utf-8") as fh:
-            for _, line in strip_code(fh.read().splitlines()):
-                for m in HTML_ANCHOR_RE.finditer(line):
+            # Headings keep inline code: GitHub slugs its text (backticks dropped).
+            for _, line in outside_fences(fh.read().splitlines()):
+                for m in HTML_ANCHOR_RE.finditer(INLINE_CODE_RE.sub("", line)):
                     slugs.add(m.group(1))
                 h = HEADING_RE.match(line)
                 if not h:
