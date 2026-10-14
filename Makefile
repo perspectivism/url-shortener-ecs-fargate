@@ -204,8 +204,8 @@ seed-secrets: ## HUMAN-RUN: prompt for secret values (never echoed) and store th
 	@scripts/seed-secrets.sh $(ENV)
 
 .PHONY: push-images
-push-images: ## Push images to ECR for ENV — APPROVAL REQUIRED
-	$(call nyi,M5)
+push-images: ## Push the commit's arm64 images to ECR for ENV — APPROVAL REQUIRED (APPROVED=yes)
+	@scripts/push-images.sh $(ENV)
 
 .PHONY: validate-iam
 validate-iam: ## IAM Access Analyzer validate-policy over planned policies
@@ -214,8 +214,9 @@ validate-iam: ## IAM Access Analyzer validate-policy over planned policies
 ##@ Verification
 
 .PHONY: smoke
-smoke: ## Smoke tests against BASE_URL
-	$(call nyi,M5)
+smoke: tools-check ## Smoke tests against BASE_URL (SMOKE_API_KEY from your environment, never a file)
+	@test -n "$(BASE_URL)" || { echo "usage: make smoke BASE_URL=https://<distribution> (export SMOKE_API_KEY first)" >&2; exit 2; }
+	SMOKE_BASE_URL=$(BASE_URL) go test -count=1 -tags=smoke -timeout=10m -v ./tests/smoke/...
 
 .PHONY: load
 load: ## k6 baseline against BASE_URL

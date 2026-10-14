@@ -3,8 +3,14 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../infra/envs"
 fail=0
-for f in main.tf outputs.tf versions.tf example.tfvars; do
-  if ! diff -q "dev/$f" "prod/$f" >/dev/null; then
+mapfile -t files < <(cd dev && find . -maxdepth 1 \( -name '*.tf' -o -name example.tfvars \) ! -name variables.tf -printf '%f\n' | sort)
+mapfile -t prod_files < <(cd prod && find . -maxdepth 1 \( -name '*.tf' -o -name example.tfvars \) ! -name variables.tf -printf '%f\n' | sort)
+if [[ "${files[*]}" != "${prod_files[*]}" ]]; then
+  echo "FAIL: envs/dev and envs/prod contain different files" >&2
+  fail=1
+fi
+for f in "${files[@]}"; do
+  if ! diff -q "dev/$f" "prod/$f" >/dev/null 2>&1; then
     echo "FAIL: envs/dev/$f and envs/prod/$f differ" >&2
     fail=1
   fi
@@ -14,5 +20,5 @@ if ! diff <(grep -v '^\s*default' dev/variables.tf) <(grep -v '^\s*default' prod
   echo "FAIL: envs/*/variables.tf differ beyond default values" >&2
   fail=1
 fi
-[[ "$fail" -eq 0 ]] && echo "env parity: dev and prod roots match (defaults differ only)"
+[[ "$fail" -eq 0 ]] && echo "env parity: ${#files[@]} files identical; variables.tf differs only in defaults"
 exit "$fail"

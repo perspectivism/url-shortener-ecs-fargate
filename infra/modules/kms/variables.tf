@@ -19,7 +19,12 @@ variable "deletion_window_in_days" {
   }
 }
 
-variable "log_group_name_prefix" {
-  description = "CloudWatch Logs log groups whose names start with this prefix may use the key (encryption context condition)."
-  type        = string
+variable "log_group_name_prefixes" {
+  description = "CloudWatch Logs log groups whose names start with one of these prefixes may use the key (encryption context condition)."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.log_group_name_prefixes) > 0
+    error_message = "At least one log group prefix is required."
+  }
 }

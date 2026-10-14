@@ -42,7 +42,8 @@ step "checkov"
 checkov -d infra --framework terraform --quiet --compact --skip-download
 
 step "trivy config (MEDIUM, HIGH, CRITICAL)"
-trivy config --quiet --severity MEDIUM,HIGH,CRITICAL --exit-code 1 infra
+# Saved plans (gitignored) embed stale source snapshots; scan the source tree only.
+trivy config --quiet --severity MEDIUM,HIGH,CRITICAL --exit-code 1 --skip-files "**/tfplan" infra
 
 step "terraform test"
 for d in "${modules[@]}" infra/bootstrap; do

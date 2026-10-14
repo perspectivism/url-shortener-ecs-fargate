@@ -34,8 +34,8 @@ locals {
 module "kms" {
   source = "../../modules/kms"
 
-  name_prefix           = local.name_prefix
-  log_group_name_prefix = "/${var.project}/${var.environment}/"
+  name_prefix             = local.name_prefix
+  log_group_name_prefixes = ["/${var.project}/${var.environment}/", "aws-waf-logs-${local.name_prefix}"]
 }
 
 module "logs" {
@@ -102,6 +102,12 @@ module "secrets" {
   name_path     = "${var.project}/${var.environment}"
   kms_key_arn   = module.kms.key_arn
   force_destroy = var.force_destroy
+
+  # Only the consuming services' execution roles may read values (ADR-0014).
+  readers = {
+    visitor_hash_salt     = var.enable_services ? [local.exec_role_arn["redirect"]] : []
+    safe_browsing_api_key = var.enable_services && var.url_scanning_enabled ? [local.exec_role_arn["api"], local.exec_role_arn["nightly"]] : []
+  }
 }
 
 module "ecr" {

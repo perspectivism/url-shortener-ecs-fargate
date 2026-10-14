@@ -72,3 +72,32 @@ output "services_enabled" {
   description = "Whether phase 2 (ECS services and edge) is enabled."
   value       = var.enable_services
 }
+
+output "base_url" {
+  description = "Public base URL (phase 2): smoke tests and short links."
+  value       = var.enable_services ? module.edge[0].base_url : null
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID (phase 2)."
+  value       = var.enable_services ? module.edge[0].distribution_id : null
+}
+
+output "alb_dns_name" {
+  description = "Internal ALB DNS name (phase 2) — must NOT be reachable from the internet."
+  value       = var.enable_services ? module.edge[0].alb_dns_name : null
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name (phase 2)."
+  value       = var.enable_services ? module.ecs_cluster[0].cluster_name : null
+}
+
+output "nightly_run_task" {
+  description = "Parameters for a manual nightly run (aws ecs run-task), phase 2."
+  value = var.enable_services ? {
+    task_definition = module.nightly[0].task_definition_arn
+    subnets         = module.network.egress_subnet_ids
+    security_groups = concat([module.nightly[0].security_group_id], local.client_sgs)
+  } : null
+}

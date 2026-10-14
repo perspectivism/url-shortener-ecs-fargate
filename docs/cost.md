@@ -41,13 +41,13 @@ Monthly figures use 730 hours.
 
 | Item | Quantity | $/month |
 | --- | --- | --- |
-| Interface endpoints | 6 (ecr.api, ecr.dkr, logs, sqs, secretsmanager, ssmmessages) × 1 AZ | 43.80 |
+| Interface endpoints | 5 (ecr.api, ecr.dkr, logs, sqs, secretsmanager) × 1 AZ; `ssmmessages` only with break-glass ECS Exec (+$7.30) | 36.50 |
 | Valkey Serverless | 100 MB minimum (1 GB worst case: $61.32) | 6.13 |
 | KMS keys | env CMK + state CMK (bootstrap) | 2.00 |
 | Secrets Manager | 2 secrets | 0.80 |
 | NAT gateway | none (`url_scanning_enabled = false`) | 0.00 |
 | DynamoDB, S3, SQS, ECR, flow logs | idle | < 1.00 |
-| **Total** | | **≈ $53** (≈ $108 if the 1 GB Valkey minimum applies) |
+| **Total** | | **≈ $46** (≈ $101 if the 1 GB Valkey minimum applies) |
 
 ## 3. Dev — with services (phase 2, estimate)
 
@@ -63,7 +63,7 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 | WAF | 1 web ACL + 4 managed rule groups + 2 rate rules | ≈ 11 |
 | CloudFront | within the free tier | 0.00 |
 | CloudWatch | dashboard, ~12 alarms, logs | ≈ 5 |
-| **Phase 2 total (dev)** | | **≈ $95–100** |
+| **Phase 2 total (dev)** | | **≈ $88–95** |
 
 ## 4. Prod — idle baseline (estimate)
 
@@ -80,7 +80,7 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 
 | Driver | Lever |
 | --- | --- |
-| Interface endpoints (fixed, per AZ) | `interface_endpoint_az_count = 1` in dev; drop `ssmmessages` by disabling ECS Exec |
+| Interface endpoints (fixed, per AZ) | `interface_endpoint_az_count = 1` in dev; `ssmmessages` only when break-glass ECS Exec is on |
 | NAT gateway | only when `url_scanning_enabled`; future: IPv6 egress-only gateway |
 | ALB + WAF fixed fees | unavoidable with the CloudFront VPC-origin design (ADR-0012) |
 | Fargate | ARM64 (−20 % vs x86), Spot for worker/nightly (and dev redirect), worker scales to zero |

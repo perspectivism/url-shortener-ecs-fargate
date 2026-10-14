@@ -33,7 +33,7 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| log\_group\_name\_prefix | CloudWatch Logs log groups whose names start with this prefix may use the key (encryption context condition). | `string` | n/a | yes |
+| log\_group\_name\_prefixes | CloudWatch Logs log groups whose names start with one of these prefixes may use the key (encryption context condition). | `list(string)` | n/a | yes |
 | name\_prefix | Resource name prefix, e.g. "shortener-dev". | `string` | n/a | yes |
 | deletion\_window\_in\_days | Waiting period before a scheduled key deletion completes (AWS minimum is 7). | `number` | `7` | no |
 

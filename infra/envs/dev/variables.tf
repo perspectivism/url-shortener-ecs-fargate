@@ -70,9 +70,14 @@ variable "url_scanning_enabled" {
 }
 
 variable "ecs_exec_enabled" {
-  description = "ECS Exec for debugging (dev only); adds the ssmmessages endpoint."
+  description = "Break-glass ECS Exec (ADR-0003): off by default because AWS does not support it with read-only root filesystems; enabling relaxes that and adds the ssmmessages endpoint. Never in prod."
   type        = bool
-  default     = true
+  default     = false
+
+  validation {
+    condition     = !(var.ecs_exec_enabled && var.environment == "prod")
+    error_message = "ECS Exec must not be enabled in prod."
+  }
 }
 
 variable "log_retention_days" {
@@ -109,4 +114,103 @@ variable "enable_services" {
   description = "Phase 2: deploy ECS services and the edge (M5). Requires seeded secrets and pushed images."
   type        = bool
   default     = false
+}
+
+variable "image_tag" {
+  description = "Image tag (git SHA) for every service; required when enable_services is true. Never \"latest\"."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = !var.enable_services || (var.image_tag != null && can(regex("^[0-9a-f]{7,40}$", coalesce(var.image_tag, "x"))))
+    error_message = "image_tag must be a git SHA (7-40 hex characters) when enable_services is true."
+  }
+}
+
+variable "sqids_alphabet" {
+  description = "Non-secret shuffled Sqids alphabet for short codes (changing it changes future codes)."
+  type        = string
+  default     = "O7mH0bSxUPJnNZefjW25TzIALs3iX1kcRdMa8QD9hgKY4rEqlVyv6wGFoutBpC"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9]{10,62}$", var.sqids_alphabet))
+    error_message = "sqids_alphabet must be 10-62 ASCII letters and digits."
+  }
+}
+
+variable "domain_name" {
+  description = "Optional custom domain (enables ACM certificates, HTTPS to the origin and TLSv1.2_2021)."
+  type        = string
+  default     = null
+}
+
+variable "hosted_zone_id" {
+  description = "Route 53 hosted zone for domain_name."
+  type        = string
+  default     = null
+}
+
+variable "redirect_min_count" {
+  description = "Minimum (and initial) redirect tasks."
+  type        = number
+  default     = 1
+}
+
+variable "redirect_max_count" {
+  description = "Maximum redirect tasks."
+  type        = number
+  default     = 2
+}
+
+variable "redirect_on_spot" {
+  description = "Run redirect on Fargate Spot (dev only; prod uses on-demand, ADR-0020)."
+  type        = bool
+  default     = true
+
+  validation {
+    condition     = !(var.redirect_on_spot && var.environment == "prod")
+    error_message = "redirect must not run on Spot in prod."
+  }
+}
+
+variable "api_min_count" {
+  description = "Minimum (and initial) api tasks."
+  type        = number
+  default     = 1
+}
+
+variable "api_max_count" {
+  description = "Maximum api tasks."
+  type        = number
+  default     = 2
+}
+
+variable "worker_min_count" {
+  description = "Minimum worker tasks (0 lets the worker scale to zero on an empty queue)."
+  type        = number
+  default     = 0
+}
+
+variable "worker_max_count" {
+  description = "Maximum worker tasks."
+  type        = number
+  default     = 1
+}
+
+variable "waf_api_rate_limit_per_minute" {
+  description = "WAF per-IP rate limit for /api/* (requests per minute)."
+  type        = number
+  default     = 300
+}
+
+variable "waf_redirect_rate_limit_per_minute" {
+  description = "WAF per-IP rate limit for redirects (requests per minute)."
+  type        = number
+  default     = 1200
+}
+
+variable "waf_anonymous_ip_action" {
+  description = "AnonymousIpList action: count (initial) or block (after review)."
+  type        = string
+  default     = "count"
 }

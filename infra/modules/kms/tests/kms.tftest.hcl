@@ -14,8 +14,8 @@ mock_provider "aws" {
 }
 
 variables {
-  name_prefix           = "shortener-test"
-  log_group_name_prefix = "/shortener/test/"
+  name_prefix             = "shortener-test"
+  log_group_name_prefixes = ["/shortener/test/", "aws-waf-logs-shortener-test"]
 }
 
 run "cmk_rotates_and_is_scoped" {
@@ -39,7 +39,7 @@ run "cmk_rotates_and_is_scoped" {
   assert {
     condition = anytrue([
       for s in data.aws_iam_policy_document.key.statement :
-      s.sid == "AllowCloudWatchLogs" && anytrue([for c in s.condition : contains(c.values, "arn:aws:logs:us-east-1:123456789012:log-group:/shortener/test/*")])
+      s.sid == "AllowCloudWatchLogs" && anytrue([for c in s.condition : contains(c.values, "arn:aws:logs:us-east-1:123456789012:log-group:/shortener/test/*") && contains(c.values, "arn:aws:logs:us-east-1:123456789012:log-group:aws-waf-logs-shortener-test*")])
     ])
     error_message = "CloudWatch Logs access must be limited to this environment's log groups."
   }
