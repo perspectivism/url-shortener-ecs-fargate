@@ -10,6 +10,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M0 🧱 Foundations](#m0--foundations---closed)
 - [M1 🔗 Core links (local)](#m1--core-links-local---closed)
 - [M2 📊 Click pipeline (local)](#m2--click-pipeline-local---closed)
+- [M3 🐳 Containers](#m3--containers---closed)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -100,6 +101,33 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   - Stats default range: last 7 days including today; `uniques` for recent, not-yet-persisted days are read live from the HLL.
   - `NIGHTLY_DATE` override (default yesterday UTC) for backfills and tests.
 - **Pending (if closed-local):** none (no cloud checks in M2)
+
+## M3 🐳 Containers — ✅ closed
+
+- **Date:** 2026-10-14T16:20Z
+- **Commit:** `16ead6d` (build), `5b4d824` (test isolation fix; gate run) (tag `gate-m3`)
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Build arm64 | `make images` | ✅ | `shortener/{redirect,api,worker,nightly}:5b4d82448194`, `linux/arm64`, cross-compiled (no emulation) |
+| Size < 30 MB | `make check-images` | ✅ | uncompressed 16.3 / 16.5 / 17.2 / 15.6 MB (compressed 5.4–5.9 MB) |
+| Non-root | `make check-images` | ✅ | `User=65532:65532` for all; entrypoint `["/app"]` (distroless static-debian13, no shell) |
+| Trivy vulnerabilities | `make scan-images` | ✅ | 0 fixable HIGH/CRITICAL; 0 vulnerabilities of any severity, fixed or not |
+| Secrets in layers | `make scan-images` + `make test-image-secret-scan` | ✅ | Trivy secret scan clean on all images; self-test: planted fake key in a throwaway image detected (2 findings) |
+| Build args / history | `make scan-images` | ✅ | our layers expose only `SERVICE` and `VERSION` (git SHA); no secret-looking content |
+| Read-only, cap-drop, non-root containers pass integration tests | `make test-integration-containers` | ✅ | all 14 integration tests with every service instance run via `docker compose run` with `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges`, UID 65532 (63.7 s) |
+| Process-mode integration (regression) | `make test-integration` | ✅ | 14/14 (80.1 s), run after the container suite against the same Valkey |
+| Unit / lint / vuln / docs | `make test lint vuln docs-check` | ✅ | coverage 97.7%; 0 lint issues; no vulnerabilities; 19/19 diagrams, 105/105 links |
+
+- **Decisions / ADRs:** ADR-0020 (Graviton ARM64 + Fargate Spot; Spot ARM64 support verified against the AWS announcement).
+- **Deviations / assumptions:**
+  - Size gate measured on the **uncompressed** filesystem (`docker export`): with the containerd image store, `docker image inspect .Size` is the compressed size and would understate the image.
+  - `make up` now builds native-platform images (`images-local`, tag `local`) and starts the full containerized stack; `make up-deps` starts only the emulators. A one-shot `init` container runs `local-init`, so the quickstart needs only Docker + make.
+  - The build-history review excludes the distroless base image's own history (it contains `bazel build //common:passwd`, a false positive).
+  - The ALB access-log bucket will use SSE-S3 (the only encryption ALB log delivery supports) — to be suppressed with justification in M5.
+- **Regression fixed:** integration runs shared the local Valkey and regenerated the same Sqids codes (fresh tables restart the ID counter), doubling uniques when a container-mode run preceded a process-mode run. Each run now uses a freshly shuffled alphabet and run-scoped owner IDs. An `httpx` shutdown test flake (speculative `StateNew` connection under load) was fixed in the test.
+- **Pending (if closed-local):** none (no cloud checks in M3)
 
 ## 📋 Pending cloud checks summary
 
