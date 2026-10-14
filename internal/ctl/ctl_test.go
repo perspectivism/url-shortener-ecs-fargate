@@ -106,7 +106,8 @@ func (w *world) env() Env {
 			return Clients{DynamoDB: w.ddb, SQS: w.sqs, S3: w.s3}, w.newErr
 		},
 		Stdout: &w.out, Stderr: &w.errOut, Rand: rand.Reader,
-		Now: func() time.Time { return time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC) },
+		Now:          func() time.Time { return time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC) },
+		InitAttempts: 1,
 	}
 }
 
@@ -205,5 +206,38 @@ func TestAPIKeyCommands(t *testing.T) {
 	e.Rand = bytes.NewReader(nil)
 	if code := Run(context.Background(), []string{"apikey", "create", "--owner", "x"}, e); code != 1 {
 		t.Error("entropy failure must fail")
+	}
+}
+
+type flakyS3 struct{ fails int }
+
+func (f *flakyS3) CreateBucket(context.Context, *s3.CreateBucketInput, ...func(*s3.Options)) (*s3.CreateBucketOutput, error) {
+	if f.fails > 0 {
+		f.fails--
+		return nil, errors.New("connection refused")
+	}
+	return &s3.CreateBucketOutput{}, nil
+}
+
+func TestLocalInitRetries(t *testing.T) {
+	w := newWorld()
+	e := w.env()
+	flaky := &flakyS3{fails: 2}
+	e.NewClients = func(context.Context) (Clients, error) { return Clients{DynamoDB: w.ddb, SQS: w.sqs, S3: flaky}, nil }
+	e.InitAttempts, e.InitDelay = 5, time.Millisecond
+	if code := Run(context.Background(), []string{"local-init"}, e); code != 0 || !strings.Contains(w.errOut.String(), "retrying") {
+		t.Fatalf("exit %d: %s", code, w.errOut.String())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	flaky.fails = 10
+	e.InitDelay = time.Hour
+	if code := Run(ctx, []string{"local-init"}, e); code != 1 {
+		t.Fatalf("cancelled retry exit %d", code)
+	}
+	e2 := w.env()
+	e2.InitAttempts = 0 // defaults
+	if code := Run(context.Background(), []string{"local-init"}, e2); code != 0 {
+		t.Fatal("default attempts")
 	}
 }

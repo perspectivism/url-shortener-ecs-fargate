@@ -142,6 +142,7 @@ func queueDrained(t *testing.T, url string) bool {
 // emfSum sums an EMF metric across all documents in a service log.
 func emfSum(t *testing.T, s *service, metric string) float64 {
 	t.Helper()
+	s.syncLogs()
 	f, err := os.Open(s.logPath)
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +359,7 @@ func TestPoisonMessageGoesToDLQ(t *testing.T) {
 		}
 		return found, "not yet in DLQ"
 	})
-	if env.worker.cmd.ProcessState != nil {
+	if !env.worker.alive() {
 		t.Fatal("worker exited")
 	}
 	code := str(createLink(t, "alice", `{"url":"https://example.com/after-poison"}`), "code")
@@ -371,8 +372,13 @@ func TestPoisonMessageGoesToDLQ(t *testing.T) {
 
 func runNightly(t *testing.T, date string) string {
 	t.Helper()
+	extra := map[string]string{"NIGHTLY_DATE": date, "SCANNER": "fake", "SCAN_SEGMENTS": "4"}
 	cmd := exec.Command(filepath.Join(env.binDir, "nightly"))
-	cmd.Env = env.environ(map[string]string{"NIGHTLY_DATE": date, "SCANNER": "fake", "SCAN_SEGMENTS": "4"})
+	cmd.Env = env.environ(extra)
+	if containerMode() {
+		args := composeArgs("it-"+env.runID+"-nightly-"+fmt.Sprint(time.Now().UnixNano()), "nightly", env.environ(extra))
+		cmd = exec.Command("docker", append(args, "--rm", "nightly")...)
+	}
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {

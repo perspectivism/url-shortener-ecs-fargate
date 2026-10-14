@@ -1,7 +1,38 @@
-# Local development stack: AWS service emulators (SPEC §15).
+# Local development stack (SPEC §15).
+#   default profile: AWS service emulators only (for `go run` / integration tests)
+#   profile "app":   + init (local-init), redirect :8080, api :8081, worker
+#   profile "jobs":  nightly (run on demand: docker compose run --rm nightly)
+# App containers run exactly like ECS tasks: read-only root filesystem, all
+# Linux capabilities dropped, no privilege escalation, non-root UID 65532.
 # Images are pinned by tag and digest. Ports bind to 127.0.0.1 only.
-# The application services are added in M3 (profile "app").
 name: url-shortener
+
+x-app: &app
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  user: "65532:65532"
+  profiles: ["app"]
+  env_file:
+    - path: .env.example
+    - path: .env
+      required: false
+  environment: &app-env
+    AWS_ENDPOINT_URL_DYNAMODB: http://dynamodb:8000
+    AWS_ENDPOINT_URL_SQS: http://sqs:9324
+    AWS_ENDPOINT_URL_S3: http://s3:9090
+    CACHE_ADDR: valkey:6379
+    HTTP_ADDR: ":8080"
+  healthcheck:
+    test: ["CMD", "/app", "healthcheck"]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+
+x-after-init: &after-init
+  depends_on:
+    init:
+      condition: service_completed_successfully
 
 services:
   dynamodb:
@@ -26,3 +57,37 @@ services:
   s3:
     image: adobe/s3mock:5.2.3@sha256:ab01a6946750f451ca215a47e91030695b260e4003b8a5a6201d25029b8fca92
     ports: ["127.0.0.1:9090:9090"]
+
+  init:
+    <<: *app
+    image: shortener/shortenerctl:${APP_IMAGE_TAG:-local}
+    command: ["local-init"]
+    healthcheck:
+      disable: true
+    depends_on: [dynamodb, valkey, sqs, s3]
+    restart: "no"
+
+  redirect:
+    <<: [*app, *after-init]
+    image: shortener/redirect:${APP_IMAGE_TAG:-local}
+    ports: ["127.0.0.1:8080:8080"]
+
+  api:
+    <<: [*app, *after-init]
+    image: shortener/api:${APP_IMAGE_TAG:-local}
+    ports: ["127.0.0.1:8081:8080"]
+
+  worker:
+    <<: [*app, *after-init]
+    image: shortener/worker:${APP_IMAGE_TAG:-local}
+    environment:
+      <<: *app-env
+      WORKER_FLUSH_INTERVAL: 10s
+
+  nightly:
+    <<: *app
+    profiles: ["jobs"]
+    image: shortener/nightly:${APP_IMAGE_TAG:-local}
+    healthcheck:
+      disable: true
+    restart: "no"

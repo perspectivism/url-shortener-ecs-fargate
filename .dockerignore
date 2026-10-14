@@ -1,0 +1,9 @@
+# Only go.mod, go.sum, cmd/ and internal/ are needed to build images.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+**/*_test.go
+internal/links/linkstest/
+internal/contract/

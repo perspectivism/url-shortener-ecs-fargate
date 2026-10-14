@@ -37,6 +37,9 @@ type Env struct {
 	Stderr     io.Writer
 	Rand       io.Reader
 	Now        func() time.Time
+	// InitAttempts bounds local-init retries while emulators start (default 60, 1 s apart).
+	InitAttempts int
+	InitDelay    time.Duration
 }
 
 const usage = `usage: shortenerctl <command> [flags]
@@ -107,6 +110,29 @@ func localInit(ctx context.Context, args []string, e Env) error {
 	if env := e.Getenv("APP_ENV"); env != "local" && env != "test" {
 		return usageError{"local-init only runs with APP_ENV=local or APP_ENV=test (AWS resources are created by Terraform)"}
 	}
+	attempts, delay := e.InitAttempts, e.InitDelay
+	if attempts < 1 {
+		attempts, delay = 60, time.Second
+	}
+	var err error
+	for i := range attempts {
+		if err = initResources(ctx, e, *linksTable, *analyticsTable, *queue, *dlq, *bucket); err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			fmt.Fprintf(e.Stderr, "local-init: %v (retrying)\n", err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+	}
+	return err
+}
+
+// initResources creates every local resource (each step is idempotent).
+func initResources(ctx context.Context, e Env, linksTable, analyticsTable, queue, dlq, bucket string) error {
 	c, err := e.NewClients(ctx)
 	if err != nil {
 		return err
@@ -115,10 +141,10 @@ func localInit(ctx context.Context, args []string, e Env) error {
 		name string
 		fn   func(string) error
 	}{
-		{*linksTable, func(n string) error {
+		{linksTable, func(n string) error {
 			return store.EnsureTable(ctx, c.DynamoDB, store.LinksTableInput(n), 200*time.Millisecond)
 		}},
-		{*analyticsTable, func(n string) error {
+		{analyticsTable, func(n string) error {
 			return store.EnsureTable(ctx, c.DynamoDB, store.AnalyticsTableInput(n), 200*time.Millisecond)
 		}},
 	} {
@@ -127,15 +153,15 @@ func localInit(ctx context.Context, args []string, e Env) error {
 		}
 		fmt.Fprintf(e.Stdout, "table   %s ready\n", in.name)
 	}
-	qURL, dURL, err := localdev.EnsureQueues(ctx, c.SQS, *queue, *dlq)
+	qURL, dURL, err := localdev.EnsureQueues(ctx, c.SQS, queue, dlq)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(e.Stdout, "queue   %s\ndlq     %s\n", qURL, dURL)
-	if err := localdev.EnsureBucket(ctx, c.S3, *bucket); err != nil {
+	if err := localdev.EnsureBucket(ctx, c.S3, bucket); err != nil {
 		return err
 	}
-	fmt.Fprintf(e.Stdout, "bucket  %s ready\n", *bucket)
+	fmt.Fprintf(e.Stdout, "bucket  %s ready\n", bucket)
 	return nil
 }
 

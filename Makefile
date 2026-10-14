@@ -16,7 +16,7 @@ export TFLINT_PLUGIN_DIR := $(ROOT)/.tools/tflint-plugins
 export PUPPETEER_CACHE_DIR := $(ROOT)/.tools/puppeteer
 
 ENV      ?= dev
-GIT_SHA  := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)
+GIT_SHA  := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)$(shell git status --porcelain 2>/dev/null | grep -q . && echo -dirty)
 COVERAGE_MIN ?= 80
 
 # Fail loudly for targets that belong to a later milestone (never a silent success).
@@ -46,14 +46,19 @@ ENV_FILE := $(if $(wildcard .env),.env,.env.example)
 WITH_ENV := set -a && . ./$(ENV_FILE) && set +a &&
 
 .PHONY: up
-up: ## Start the local compose stack and initialise tables/queues/bucket
-	$(COMPOSE) up -d --wait
+up: images-local ## Build local images and start the full stack: emulators + redirect :8080, api :8081, worker
+	$(COMPOSE) --profile app up -d --wait
+	@echo "redirect: http://localhost:8080   api: http://localhost:8081   (make apikey OWNER=demo)"
+
+.PHONY: up-deps
+up-deps: ## Start only the emulators and initialise tables/queues/bucket (for go run / tests)
+	$(COMPOSE) up -d --wait dynamodb valkey sqs s3
 	@$(WITH_ENV) scripts/wait-for-emulators.sh
 	$(WITH_ENV) go run ./cmd/shortenerctl local-init
 
 .PHONY: down
 down: ## Stop the local compose stack and discard its data
-	$(COMPOSE) down -v --remove-orphans
+	$(COMPOSE) --profile app --profile jobs down -v --remove-orphans
 
 .PHONY: run-redirect
 run-redirect: ## Run the redirect service on :8080 against the local stack
@@ -63,9 +68,12 @@ run-redirect: ## Run the redirect service on :8080 against the local stack
 run-api: ## Run the API service on :8081 against the local stack
 	$(WITH_ENV) HTTP_ADDR=:8081 go run ./cmd/api
 
+OWNER  ?= demo
+SCOPES ?= links:read,links:write
+
 .PHONY: apikey
 apikey: ## Create a local API key: make apikey OWNER=demo SCOPES=links:read,links:write
-	$(WITH_ENV) go run ./cmd/shortenerctl apikey create --owner $(or $(OWNER),demo) --scopes $(or $(SCOPES),links:read,links:write)
+	@$(COMPOSE) --profile app run --rm --no-deps init apikey create --owner $(OWNER) --scopes $(SCOPES)
 
 ##@ Quality
 
@@ -103,9 +111,14 @@ test: tools-check ## Unit tests with -race and the coverage gate
 	@scripts/check-coverage.sh coverage/unit.out $(COVERAGE_MIN)
 
 .PHONY: test-integration
-test-integration: tools-check ## Integration tests against the compose stack (run `make up` first)
+test-integration: tools-check ## Integration tests: services as host processes against the emulators
 	@scripts/wait-for-emulators.sh
 	go test -race -count=1 -tags=integration -timeout=15m ./tests/integration/...
+
+.PHONY: test-integration-containers
+test-integration-containers: tools-check images-local ## Integration tests with every service in a read-only, cap-dropped, non-root container
+	@scripts/wait-for-emulators.sh
+	IT_MODE=container go test -count=1 -tags=integration -timeout=20m ./tests/integration/...
 
 .PHONY: test-secret-scan
 test-secret-scan: tools-check ## gitleaks self-test (must detect a planted fake key)
@@ -126,17 +139,39 @@ vuln: tools-check ## govulncheck
 
 ##@ Containers
 
+SERVICES   := redirect api worker nightly
+IMAGE_REPO ?= shortener
+IMAGE_TAG  ?= $(GIT_SHA)
+PLATFORM   ?= linux/arm64
+export IMAGE_TAG
+
 .PHONY: images
 images: ## Build arm64 images tagged with the git SHA
-	$(call nyi,M3)
+	@for s in $(SERVICES); do \
+		echo "==> $(IMAGE_REPO)/$$s:$(IMAGE_TAG) ($(PLATFORM))"; \
+		docker buildx build --quiet --platform $(PLATFORM) --build-arg SERVICE=$$s --build-arg VERSION=$(IMAGE_TAG) \
+			-f build/Dockerfile -t $(IMAGE_REPO)/$$s:$(IMAGE_TAG) --load . >/dev/null || exit 1; \
+	done
+
+.PHONY: images-local
+images-local: ## Build native-platform images tagged "local" for the compose app stack
+	@for s in $(SERVICES) shortenerctl; do \
+		echo "==> $(IMAGE_REPO)/$$s:local"; \
+		docker buildx build --quiet --build-arg SERVICE=$$s --build-arg VERSION=$(GIT_SHA) \
+			-f build/Dockerfile -t $(IMAGE_REPO)/$$s:local --load . >/dev/null || exit 1; \
+	done
 
 .PHONY: check-images
-check-images: ## Non-root user and size checks
-	$(call nyi,M3)
+check-images: ## Non-root user, arm64, entrypoint and size (< 30 MB) checks
+	@scripts/check-images.sh $(IMAGE_REPO) $(IMAGE_TAG) $(SERVICES)
+
+.PHONY: test-image-secret-scan
+test-image-secret-scan: tools-check ## Trivy self-test: a planted fake key in a throwaway image must be detected
+	@scripts/test-image-secret-scan.sh
 
 .PHONY: scan-images
-scan-images: ## Trivy image + secret scan
-	$(call nyi,M3)
+scan-images: tools-check ## Trivy vulnerability + secret scan and build-history review
+	@scripts/scan-images.sh $(IMAGE_REPO) $(IMAGE_TAG) $(SERVICES)
 
 ##@ Terraform
 

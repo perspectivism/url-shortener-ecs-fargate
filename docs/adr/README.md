@@ -18,4 +18,5 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0011](0011-analytics-hot-and-cold-paths.md) | Analytics hot/cold paths: DynamoDB counters + S3/Athena | Accepted |
 | [0015](0015-api-key-authentication.md) | API key authentication (vs Cognito) | Accepted |
 | [0018](0018-privacy-hmac-visitor-ids-referrer-host-only.md) | Privacy: HMAC visitor IDs, referrer host only | Accepted |
+| [0020](0020-graviton-arm64-and-fargate-spot.md) | Graviton (ARM64) and Fargate Spot usage | Accepted |
 | [0021](0021-url-safety-scanning-safe-browsing-v5.md) | URL safety scanning with Safe Browsing v5 `urls:search` | Accepted |

@@ -67,11 +67,39 @@ type testEnv struct {
 }
 
 type service struct {
-	name    string
-	url     string
-	cmd     *exec.Cmd
-	logPath string
-	done    chan error
+	name      string
+	url       string
+	cmd       *exec.Cmd // process mode
+	container string    // container mode
+	logPath   string
+	done      chan error
+}
+
+// containerMode runs every service as a container through `docker compose run`
+// (read-only root FS, all capabilities dropped, UID 65532 — the compose "app"
+// profile settings) instead of as host processes.
+func containerMode() bool { return os.Getenv("IT_MODE") == "container" }
+
+// alive reports whether the service has not exited.
+func (s *service) alive() bool {
+	select {
+	case err := <-s.done:
+		s.done <- err
+		return false
+	default:
+		return true
+	}
+}
+
+// syncLogs refreshes the log file from the container (container mode).
+func (s *service) syncLogs() {
+	if s.container == "" {
+		return
+	}
+	out, err := exec.Command("docker", "logs", s.container).CombinedOutput()
+	if err == nil {
+		_ = os.WriteFile(s.logPath, out, 0o600)
+	}
 }
 
 func getenv(k, def string) string {
@@ -242,7 +270,11 @@ func (e *testEnv) clients(ctx context.Context) error {
 }
 
 func (e *testEnv) build() error {
-	for _, c := range []string{"redirect", "api", "worker", "nightly", "shortenerctl"} {
+	bins := []string{"redirect", "api", "worker", "nightly", "shortenerctl"}
+	if containerMode() {
+		bins = []string{"shortenerctl"} // services run from images (make images-local)
+	}
+	for _, c := range bins {
 		if _, err := os.Stat(filepath.Join("../../cmd", c)); err != nil {
 			continue // binaries added in later milestones
 		}
@@ -303,10 +335,17 @@ func (e *testEnv) start(name, bin, port string, extra map[string]string) (*servi
 		}
 		port = p
 	}
+	logPath := filepath.Join(e.logDir, name+".log")
+	if containerMode() {
+		s, err := e.startContainer(name, bin, port, extra, logPath)
+		if err != nil {
+			return nil, err
+		}
+		return s, e.awaitHealthy(s, port)
+	}
 	if port != "-" {
 		extra["HTTP_ADDR"] = "127.0.0.1:" + port
 	}
-	logPath := filepath.Join(e.logDir, name+".log")
 	f, err := os.Create(logPath)
 	if err != nil {
 		return nil, err
@@ -322,30 +361,106 @@ func (e *testEnv) start(name, bin, port string, extra map[string]string) (*servi
 	e.mu.Lock()
 	e.procs = append(e.procs, s)
 	e.mu.Unlock()
+	return s, e.awaitHealthy(s, port)
+}
+
+func (e *testEnv) awaitHealthy(s *service, port string) error {
 	if port == "-" {
-		return s, nil
+		return nil
 	}
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-s.done:
-			return nil, fmt.Errorf("%s exited during startup: %w", name, err)
+			s.syncLogs()
+			return fmt.Errorf("%s exited during startup: %w", s.name, err)
 		default:
 		}
 		resp, err := http.Get(s.url + "/healthz")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return s, nil
+				return nil
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return nil, fmt.Errorf("%s did not become healthy", name)
+	s.syncLogs()
+	return fmt.Errorf("%s did not become healthy", s.name)
+}
+
+// containerEnv rewrites host-side emulator addresses to compose service names.
+func containerEnv(env []string) []string {
+	repl := map[string]string{
+		"localhost:8000": "dynamodb:8000", "localhost:9324": "sqs:9324",
+		"localhost:9090": "s3:9090", "localhost:6379": "valkey:6379",
+	}
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "HOME=") {
+			continue
+		}
+		k, v, _ := strings.Cut(kv, "=")
+		if k != "CLICK_QUEUE_URL" && k != "BASE_URL" {
+			for from, to := range repl {
+				v = strings.ReplaceAll(v, from, to)
+			}
+		}
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+func composeArgs(name, svc string, env []string) []string {
+	args := []string{"compose", "-f", "../../docker-compose.yml", "run", "--no-deps", "--name", name}
+	for _, kv := range containerEnv(env) {
+		args = append(args, "-e", kv)
+	}
+	return args
+}
+
+func (e *testEnv) startContainer(name, svc, port string, extra map[string]string, logPath string) (*service, error) {
+	cname := "it-" + e.runID + "-" + name
+	extra["HTTP_ADDR"] = ":8080"
+	args := composeArgs(cname, svc, e.environ(extra))
+	args = append(args, "-d")
+	if port != "-" {
+		args = append(args, "-p", "127.0.0.1:"+port+":8080")
+	}
+	args = append(args, svc)
+	if out, err := exec.Command("docker", args...).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("compose run %s: %w\n%s", name, err, out)
+	}
+	s := &service{name: name, url: "http://127.0.0.1:" + port, container: cname, logPath: logPath, done: make(chan error, 1)}
+	go func() {
+		out, err := exec.Command("docker", "wait", cname).Output()
+		code := strings.TrimSpace(string(out))
+		switch {
+		case err != nil:
+			s.done <- err
+		case code != "0":
+			s.done <- fmt.Errorf("container exited with status %s", code)
+		default:
+			s.done <- nil
+		}
+	}()
+	e.mu.Lock()
+	e.procs = append(e.procs, s)
+	e.mu.Unlock()
+	return s, nil
 }
 
 // stop sends SIGTERM and waits for a clean exit.
 func (s *service) stop(timeout time.Duration) error {
+	if s.container != "" {
+		// docker stop sends SIGTERM, then SIGKILL after the timeout.
+		_ = exec.Command("docker", "stop", "-t", fmt.Sprint(int(timeout.Seconds())), s.container).Run()
+		err := <-s.done
+		s.done <- err
+		s.syncLogs()
+		_ = exec.Command("docker", "rm", "-f", s.container).Run()
+		return err
+	}
 	_ = s.cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case err := <-s.done:
@@ -361,7 +476,7 @@ func (e *testEnv) stopAll() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, s := range e.procs {
-		if s.cmd.ProcessState == nil {
+		if s.alive() {
 			_ = s.stop(15 * time.Second)
 		}
 	}
@@ -371,6 +486,7 @@ func (e *testEnv) dumpLogs(w io.Writer) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, s := range e.procs {
+		s.syncLogs()
 		f, err := os.Open(s.logPath)
 		if err != nil {
 			continue
