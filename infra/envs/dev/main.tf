@@ -63,6 +63,7 @@ module "network" {
   kms_key_arn                 = module.kms.key_arn
   flow_log_retention_days     = var.log_retention_days
   dynamodb_table_name_prefix  = "${local.name_prefix}-"
+  s3_bucket_name_prefix       = "${local.name_prefix}-"
   permissions_boundary_arn    = local.permissions_boundary_arn
 }
 

@@ -41,7 +41,7 @@ data "aws_iam_policy_document" "key" {
       "kms:GenerateDataKey*",
       "kms:Describe*",
     ]
-    resources = ["*"]
+    resources = ["*"] # In a key policy, "*" means this key.
 
     principals {
       type        = "Service"
@@ -60,7 +60,7 @@ data "aws_iam_policy_document" "key" {
     sid       = "AllowAlertPublishersToEncryptedSNS"
     effect    = "Allow"
     actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
-    resources = ["*"]
+    resources = ["*"] # In a key policy, "*" means this key.
 
     principals {
       type = "Service"

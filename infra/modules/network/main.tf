@@ -162,11 +162,15 @@ resource "aws_route_table_association" "isolated" {
 # --- Gateway endpoints (free) ------------------------------------------------
 
 data "aws_iam_policy_document" "s3_endpoint" {
+  # Data perimeter (threat model, exfiltration): tasks reach S3 only through
+  # this endpoint, so it admits only this environment's buckets and the object
+  # actions the services use. Endpoint policies need principal "*"; the task
+  # roles' IAM policies still apply on top.
   statement {
-    sid       = "OwnAccountBuckets"
+    sid       = "ProjectBucketObjects"
     effect    = "Allow"
-    actions   = ["s3:*"]
-    resources = ["*"]
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"]
+    resources = ["arn:${local.partition}:s3:::${var.s3_bucket_name_prefix}*/*"]
 
     principals {
       type        = "*"
@@ -195,6 +199,9 @@ data "aws_iam_policy_document" "s3_endpoint" {
 }
 
 data "aws_iam_policy_document" "dynamodb_endpoint" {
+  # Same perimeter for DynamoDB: only this environment's tables (and indexes).
+  # Endpoint policies need principal "*"; "dynamodb:*" is bounded by the
+  # table ARNs, and the task roles grant the specific actions.
   statement {
     sid     = "ProjectTables"
     effect  = "Allow"
@@ -264,6 +271,40 @@ resource "aws_vpc_security_group_egress_rule" "clients_to_endpoints" {
   referenced_security_group_id = aws_security_group.endpoints.id
 }
 
+# Data perimeter for the interface endpoints (M7, threat model "exfiltration"):
+# only this account's principals, and only this account's resources. Code
+# running in a task cannot use attacker credentials, or reach another account's
+# queue, log group, secret or registry, through the endpoints. ssmmessages
+# (break-glass ECS Exec only) has no resource ARNs and keeps the default policy.
+data "aws_iam_policy_document" "interface_endpoint" {
+  for_each = { for k in local.interface_endpoints : k => split(".", k)[0] if k != "ssmmessages" }
+
+  statement {
+    sid       = "OwnAccountPrincipalsAndResources"
+    effect    = "Allow"
+    actions   = ["${each.value}:*"] # Endpoint policy: narrows to this endpoint's service, never grants; task roles name the actions.
+    resources = ["*"]               # Scoped by the aws:ResourceAccount condition below.
+
+    # Endpoint policies require principal "*"; the conditions scope it.
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:PrincipalAccount"
+      values   = [local.account_id]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceAccount"
+      values   = [local.account_id]
+    }
+  }
+}
+
 resource "aws_vpc_endpoint" "interface" {
   for_each = local.interface_endpoints
 
@@ -273,6 +314,7 @@ resource "aws_vpc_endpoint" "interface" {
   private_dns_enabled = true
   subnet_ids          = [for id in local.endpoint_az_ids : aws_subnet.isolated[id].id]
   security_group_ids  = [aws_security_group.endpoints.id]
+  policy              = each.key == "ssmmessages" ? null : data.aws_iam_policy_document.interface_endpoint[each.key].json
   tags                = { Name = "${var.name_prefix}-${replace(each.key, ".", "-")}" }
 }
 

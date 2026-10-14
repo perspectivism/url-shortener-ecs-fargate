@@ -1,0 +1,57 @@
+# Self-test fixture for scripts/check_iam_wildcards.py: four unjustified
+# wildcards that must be reported, and justified or Deny ones that must not.
+data "aws_iam_policy_document" "bad" {
+  statement {
+    sid       = "StarAction"
+    actions   = ["*"]
+    resources = ["arn:aws:s3:::bucket/${replace(var.x, "-", "/")}"]
+  }
+
+  statement {
+    sid    = "ServiceStar"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "dynamodb:*",
+    ]
+    resources = ["arn:aws:dynamodb:us-east-1:123456789012:table/t"]
+  }
+
+  statement {
+    sid       = "StarResource"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "StarPrincipal"
+    effect    = "Allow"
+    actions   = ["sns:Publish"]
+    resources = ["arn:aws:sns:us-east-1:123456789012:t"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+  }
+
+  statement {
+    sid       = "JustifiedResource"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"] # AWS: no resource-level permissions.
+  }
+
+  statement {
+    sid       = "DenyIsFine"
+    effect    = "Deny"
+    actions   = ["*"]
+    resources = ["*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+  }
+}

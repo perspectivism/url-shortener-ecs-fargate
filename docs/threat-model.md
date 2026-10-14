@@ -1,8 +1,9 @@
 # 🛡️ URL Shortener — Threat Model
 
-> **Status:** v0.3 (M6). Application-level data flows and STRIDE for the
-> redirect path, the API and the click pipeline, plus the detection controls
-> added in M6. Completed per SPEC §17.3 (infrastructure, CI/CD, full STRIDE) in M7.
+> **Status:** v1.0 (M7) — complete per SPEC §17.3: scope, assets, actors, data
+> flows with trust boundaries, STRIDE for every element and flow (application,
+> infrastructure, CI/CD and supply chain), residual risks and scanner
+> suppressions. Every row is **mitigated** or **accepted** with rationale; none is open.
 
 ## Contents
 
@@ -13,15 +14,25 @@
 5. [STRIDE — redirect path](#5-stride--redirect-path)
 6. [STRIDE — management API](#6-stride--management-api)
 7. [STRIDE — click pipeline and nightly job](#7-stride--click-pipeline-and-nightly-job)
-8. [Accepted and residual risks](#8-accepted-and-residual-risks)
-9. [Scanner suppressions](#9-scanner-suppressions)
+8. [STRIDE — infrastructure](#8-stride--infrastructure)
+9. [STRIDE — CI/CD and supply chain](#9-stride--cicd-and-supply-chain)
+10. [Coverage of SPEC §17.3](#10-coverage-of-spec-173)
+11. [Accepted and residual risks](#11-accepted-and-residual-risks)
+12. [Scanner suppressions](#12-scanner-suppressions)
 
 ## 1. Scope
 
-This version covers the application layer: the `redirect`, `api`, `worker` and
-`nightly` components, their use of DynamoDB, Valkey, SQS, S3 and Google Safe
-Browsing, and API-key authentication.
-Infrastructure (network, IAM, edge, KMS) and CI/CD are covered from M4–M8.
+Everything that runs or deploys URL Shortener:
+
+- the four services (`redirect`, `api`, `worker`, `nightly`) and their use of
+  DynamoDB, Valkey, SQS, S3 and Google Safe Browsing;
+- API-key authentication;
+- the edge (CloudFront, WAF, VPC origin, internal ALB);
+- the network, IAM, KMS and observability;
+- Terraform state, the GitHub Actions OIDC roles, and the build and dependency
+  supply chain.
+
+Out of scope: AWS's and Google's own infrastructure, and visitors' devices.
 
 ## 2. Assets
 
@@ -32,7 +43,9 @@ Infrastructure (network, IAM, edge, KMS) and CI/CD are covered from M4–M8.
 | Analytics privacy | Visitor IPs/referrers are personal data (SPEC N6) |
 | API keys | Grant control over an owner's links |
 | Owner isolation | One customer must not read or change another's links |
-| AWS account | Everything above runs in it |
+| AWS account | Everything above runs in it; includes KMS keys and secrets |
+| Terraform state and CI roles | Whoever can write state or assume the apply role controls the infrastructure |
+| Build artifacts | Images and dependencies run with the services' IAM permissions |
 
 ## 3. Actors
 
@@ -41,7 +54,7 @@ Infrastructure (network, IAM, edge, KMS) and CI/CD are covered from M4–M8.
 | Anonymous visitor | Any HTTP request to the edge | Mostly benign; may scan codes or flood |
 | API client | Holds a valid API key with some scopes | Benign, or curious about other owners |
 | Malicious link creator | Holds (or steals) a key | Phishing, malware distribution, abuse of our domain reputation |
-| Compromised dependency | Code running inside our tasks | Exfiltration, persistence |
+| Compromised dependency | Code running inside our tasks or CI | Exfiltration, persistence |
 | Insider / CI | Repository and pipeline access | Accidental or deliberate misuse |
 
 ## 4. Data flow and trust boundaries
@@ -51,58 +64,79 @@ flowchart LR
     subgraph internet["🌐 Internet (untrusted)"]
         visitor(["👤 Visitor"])
         client(["🧑‍💻 API client"])
+        gh(["🐙 GitHub Actions"])
     end
-    subgraph edge["⚡ Edge (AWS-managed)"]
-        cf["CloudFront + WAF"]
+    subgraph edge["⚡ Edge (AWS-managed, global)"]
+        waf["WAF<br/>managed rules · per-IP rate rules"]
+        cf["CloudFront<br/>TLS · CachingDisabled"]
     end
-    subgraph vpc["🔒 VPC (our code)"]
+    subgraph vpc["🔒 VPC (our code, private subnets only)"]
+        alb["internal ALB<br/>SG: CloudFront origin-facing only"]
         redirect["↪️ redirect"]
         api["🔧 api"]
-    end
-    subgraph managed["☁️ AWS managed services"]
-        ddb[("DynamoDB links")]
-        valkey[("Valkey")]
-        sqs[["SQS click-events + DLQ"]]
-        stats[("DynamoDB analytics")]
-        s3[("S3 raw events")]
-    end
-    subgraph batch["⚙️ Pipeline (our code)"]
         worker["worker"]
         nightly["nightly"]
+        vpce["VPC endpoints<br/>data-perimeter policies"]
+    end
+    subgraph managed["☁️ AWS managed services (IAM + KMS)"]
+        ddb[("DynamoDB links / analytics")]
+        valkey[("Valkey<br/>IAM auth · TLS")]
+        sqs[["SQS click-events + DLQ"]]
+        s3[("S3 raw events")]
+        sm["Secrets Manager"]
+        cw["CloudWatch · SNS"]
+    end
+    subgraph ci["🏗️ CI / control plane"]
+        sts["STS OIDC<br/>sub-pinned roles"]
+        state[("Terraform state<br/>S3 + CMK")]
+        ecr["ECR (immutable tags)"]
     end
     subgraph third["🧪 Third party"]
         gsb["Google Safe Browsing"]
     end
     visitor -->|"GET /code"| cf
     client -->|"Bearer key · JSON ≤ 8 KiB"| cf
-    cf -->|"VPC origin · viewer address/country headers"| redirect
-    cf -->|"/api/*"| api
+    waf -.- cf
+    cf -->|"VPC origin · viewer address/country"| alb
+    alb -->|"default"| redirect
+    alb -->|"/api/*"| api
     redirect -->|"l:code (50 ms)"| valkey
     redirect -->|"GetItem (200 ms)"| ddb
-    redirect -.->|"click event (no IP)"| sqs
+    redirect -.->|"click event (no IP)"| vpce
+    vpce --> sqs
     api -->|"conditional writes"| ddb
     api -->|"rate limits · idempotency · DEL"| valkey
-    api -->|"urls:search (300 ms, key in header)"| gsb
+    api -->|"urls:search via NAT (scanning on)"| gsb
     sqs --> worker
-    worker -->|"dedupe + counters"| stats
-    worker -->|"PFADD"| valkey
+    worker -->|"dedupe + counters"| ddb
     worker -->|"gzip NDJSON"| s3
-    nightly -->|"PFCOUNT → uniques"| stats
     nightly -->|"rescans"| gsb
-    nightly -->|"disable + DEL"| ddb
+    nightly -->|"PFCOUNT → uniques · disable"| ddb
+    sm -.->|"valueFrom (execution role)"| redirect
+    redirect -.->|"logs + EMF"| cw
+    gh -->|"OIDC token"| sts
+    sts -->|"plan / apply"| state
+    gh -->|"push SHA-tagged images"| ecr
+    ecr -.->|"pull (execution role)"| vpc
 ```
 
-Trust boundaries: Internet → Edge (TLS, WAF), Edge → VPC (only CloudFront can
-reach the internal ALB — ADR-0012, M5), VPC → AWS services (IAM task roles,
-VPC endpoints, KMS), VPC → third party (Safe Browsing over NAT, only when
-scanning is enabled).
+**Trust boundaries:**
+
+- **Internet → Edge:** TLS, WAF managed rules and per-IP rate limits.
+- **Edge → VPC:** only CloudFront can reach the internal ALB, through the VPC
+  origin and the origin-facing prefix list (ADR-0012).
+- **VPC → AWS services:** per-service task roles, VPC endpoints with
+  data-perimeter policies, and KMS.
+- **VPC → third party:** Safe Browsing over NAT, only when scanning is enabled.
+- **CI → AWS:** GitHub OIDC with `sub`-pinned roles under a permissions
+  boundary; no static keys.
 
 ## 5. STRIDE — redirect path
 
 | # | Threat | STRIDE | L | I | Mitigation | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | R1 | **Code enumeration** — scanning random codes to discover links | I | H | M | Codes are non-sequential (Sqids, [ADR-0006](adr/0006-short-code-generation-range-allocation-and-sqids.md)); negative cache 60 s keeps scans off DynamoDB ([`resolver.go`](../internal/links/resolver.go)); invalid code syntax rejected before any lookup; WAF per-IP rate rules (M5) | Mitigated (links are not secrets — [ADR-0006](adr/0006-short-code-generation-range-allocation-and-sqids.md)) |
-| R2 | **Open redirect / phishing** — our domain lends credibility to malicious destinations | S/T | H | H | Safe Browsing at create/update + nightly rescan ([ADR-0021](adr/0021-url-safety-scanning-safe-browsing-v5.md)); admin kill switch with immediate cache invalidation; destinations restricted to http(s), no credentials, no private/loopback/link-local IP literals, no non-canonical numeric hosts, not our own domain ([`validate.go`](../internal/links/validate.go)) | Mitigated; zero-day gap accepted (§7) |
+| R2 | **Open redirect / phishing** — our domain lends credibility to malicious destinations | S/T | H | H | Safe Browsing at create/update + nightly rescan ([ADR-0021](adr/0021-url-safety-scanning-safe-browsing-v5.md)); admin kill switch with immediate cache invalidation; destinations restricted to http(s), no credentials, no private/loopback/link-local IP literals, no non-canonical numeric hosts, not our own domain ([`validate.go`](../internal/links/validate.go)) | Mitigated; zero-day gap accepted ([§11](#11-accepted-and-residual-risks)) |
 | R3 | **Cache poisoning** — making `l:{code}` point elsewhere | T | L | H | Only our services write Valkey (IAM auth, SG, TLS — [ADR-0009](adr/0009-valkey-iam-authentication.md)); entries derive solely from DynamoDB; gone links are cached without a destination; CloudFront never caches redirects ([ADR-0007](adr/0007-302-redirects-and-no-edge-caching.md)) | Mitigated |
 | R4 | **DoS on the hot path** | D | M | H | WAF rate rules (M5); cache-aside + singleflight per code (stampede protection); 50 ms cache / 200 ms DynamoDB deadlines; server read/write/idle timeouts and `MaxHeaderBytes` ([`server.go`](../internal/httpx/server.go)); click enqueue is non-blocking with a bounded buffer ([`producer.go`](../internal/events/producer.go)); autoscaling (M5) | Mitigated |
 | R5 | **Cache outage** turns into a redirect outage | D | M | H | Cache errors fail open to DynamoDB and are counted (`CacheErrors`) | Mitigated |
@@ -144,7 +178,56 @@ L = likelihood, I = impact (H/M/L).
 | P7 | **Nightly mis-disables** links (scanner false positives) or fails silently | T/R | L | M | Only Safe Browsing verdicts disable; reason `unsafe_url` recorded; admin can re-enable; job exits non-zero on any failed step, alarmed through a log metric filter, Scheduler target errors and an EventBridge rule on non-zero exit ([ADR-0022](adr/0022-observability-alerting-and-cost-guardrails.md)); idempotent re-runs | Mitigated |
 | P8 | **Stats IDOR** — reading another owner's analytics | I | M | M | Stats endpoint checks link ownership first (404 otherwise) ([`stats.go`](../internal/api/stats.go)) | Mitigated |
 
-## 8. Accepted and residual risks
+## 8. STRIDE — infrastructure
+
+| # | Threat | STRIDE | L | I | Mitigation | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| I1 | **Direct origin access** bypassing WAF, or spoofing viewer headers | S/T | M | H | ALB is `internal` in isolated subnets; its SG admits only the CloudFront origin-facing prefix list; reachable only through the VPC origin ([`edge`](../infra/modules/edge/main.tf), [ADR-0012](adr/0012-cloudfront-vpc-origin-internal-alb-waf.md)); `drop_invalid_header_fields`; smoke test `TestALBNotPublic` | Mitigated (cloud verification pending) |
+| I2 | **Lateral movement** between tasks and data stores | E | L | H | One SG per service; task SGs admit only the ALB SG on 8080; Valkey and endpoints admit only client SGs; isolated subnets have no internet route ([`network`](../infra/modules/network/main.tf), [ADR-0013](adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md)) | Mitigated |
+| I3 | **Data exfiltration** from a compromised task | I | M | H | No internet egress except HTTPS via NAT for api/nightly when scanning is on. Gateway endpoints admit only this environment's buckets/tables. Interface endpoints admit only their own service's actions, by this account's principals **and** on this account's resources (`aws:PrincipalAccount` + `aws:ResourceAccount`), so attacker credentials or another account's queue/log group cannot be used. Least-privilege task roles. Every store encrypted with the environment CMK (`kms:ViaService`-scoped grants) | Mitigated |
+| I4 | **Privilege escalation via IAM** (over-broad task roles, wildcards) | E | L | H | One task and one execution role per service with resource-scoped ARNs; every Allow wildcard is justified inline and checked (`scripts/check_iam_wildcards.py`); Access Analyzer `validate-policy` over every rendered policy (`make validate-iam`); roles carry the CI permissions boundary | Mitigated (Access Analyzer run pending cloud access) |
+| I5 | **Key misuse / data at rest disclosure** | I | L | H | Per-environment CMK with rotation; key policy delegates to IAM, and service principals are limited by encryption context (logs) or `aws:SourceAccount` (alerts); S3 BPA, BucketOwnerEnforced, TLS-only policies; DynamoDB/SQS/Secrets/Valkey/ECR/Logs all use the CMK ([`kms`](../infra/modules/kms/main.tf)) | Mitigated |
+| I6 | **Secret disclosure** (Safe Browsing key, visitor salt) | I | L | H | Values entered out of band (`make seed-secrets`), never in Terraform or state; injected via `valueFrom` to the consuming service's execution role only; secret policies deny every other principal ([ADR-0014](adr/0014-secrets-management.md)) | Mitigated |
+| I7 | **Container breakout / runtime tampering** | E/T | L | H | Distroless static images, UID 65532, read-only root FS, all capabilities dropped, no shell; ECS Exec off (break-glass only, forbidden in prod) ([ADR-0003](adr/0003-ecs-on-fargate.md)) | Mitigated |
+| I8 | **Edge DoS / volumetric abuse** | D | M | H | CloudFront + Shield Standard; WAF per-IP rate rules evaluated **first** so they count every request, answering 429 with `Retry-After`; IP reputation and known-bad-input rule groups; autoscaling; DynamoDB and Valkey throughput caps bound cost | Mitigated |
+| I9 | **WAF false positives** blocking legitimate API calls (URLs in bodies) | D | M | L | `SizeRestrictions_BODY` counted so the API answers 413 itself; `AnonymousIpList` in count mode until reviewed in WAF logs; other managed rules block, including destinations with public IP literals in request bodies (`GenericRFI_BODY`), which are phishing indicators anyway | Accepted (tuning via WAF logs; rules switch to count per rule) |
+| I10 | **Loss of audit trail** (repudiation) | R | L | M | CloudFront standard logs v2, WAF logs (Authorization redacted), ALB access logs, VPC flow logs and application logs, all with retention and CMK; every log group is Terraform-managed and plan-checked | Mitigated |
+| I11 | **Silent failure** (alarms not delivered) | R/D | L | M | Every alarm sends ALARM and OK to a CMK-encrypted, TLS-only topic; plan invariant: every alarm has an action; subscription confirmation is a gate check ([ADR-0022](adr/0022-observability-alerting-and-cost-guardrails.md)) | Mitigated |
+| I12 | **Destructive change to stateful resources** | T/D | L | H | Prod: deletion protection, `force_destroy = false`, PITR, versioning, 30-day secret recovery; every apply uses a saved, approved plan; destroys of stateful resources are called out (AGENTS.md §4) | Mitigated |
+
+## 9. STRIDE — CI/CD and supply chain
+
+| # | Threat | STRIDE | L | I | Mitigation | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| C1 | **CI role abuse** from forks, other repositories or branches | S/E | M | H | GitHub OIDC with `aud = sts.amazonaws.com` and an exact `sub`: the plan role trusts only `repo:<repo>:pull_request`; each apply role trusts only `repo:<repo>:environment:<env>`; the prod environment requires a reviewer's approval (GitHub setting, M8) ([`bootstrap`](../infra/bootstrap/main.tf), [ADR-0017](adr/0017-cicd-github-oidc-rolling-deploys.md)) | Mitigated |
+| C2 | **Privilege escalation through roles CI creates** | E | L | H | Permissions boundary: CI can only create roles that carry it; boundary is immutable and cannot be detached; only `<project>-*` roles may be modified or passed; IAM users, access keys and login profiles are denied | Mitigated |
+| C3 | **Cross-environment damage** from the dev pipeline | T | L | H | Apply roles may not read or write the other environment's state, and are denied every action on resources tagged with the other `Environment` | Mitigated |
+| C4 | **State tampering or disclosure** | T/I | L | H | State bucket with versioning, CMK, TLS-only and BPA; bucket and key are off-limits to CI; plan role reads state but no application data ([ADR-0016](adr/0016-terraform-layout-environments-s3-native-locking.md)) | Mitigated |
+| C5 | **Compromised third-party action or tool** | T/E | M | H | Actions pinned to full commit SHAs (`scripts/check-pins.sh`, M8); every CLI tool downloaded with checksum verification; Python and Node tools hash-pinned; no `latest` anywhere | Mitigated (workflow pinning enforced in M8) |
+| C6 | **Vulnerable or malicious Go dependency** | T/E | M | H | Small approved dependency list (AGENTS.md §8); `go.sum` checksums; `govulncheck` in every gate; Dependabot updates in M8 | Mitigated |
+| C7 | **Vulnerable or tampered base image** | T/E | M | H | Base images pinned by digest (distroless static nonroot); Trivy scans of images and build history; ECR scan on push and immutable SHA tags; the exact digest promoted from dev to prod, never rebuilt | Mitigated |
+| C8 | **Secrets committed to git or baked into images** | I | M | H | gitleaks pre-commit and full-history scan with a custom API-key rule; self-tests prove detection; Trivy secret scan of images; `.env` gitignored, `.env.example` fake values only | Mitigated |
+| C9 | **Unreviewed infrastructure change** | T/R | L | H | `terraform plan -out` and apply of exactly that plan after approval; plan invariants and static scanners (checkov, Trivy, tflint) run before every plan in CI (M8) | Mitigated |
+
+## 10. Coverage of SPEC §17.3
+
+| Required topic | Rows |
+| --- | --- |
+| Open redirect and phishing abuse | R2, R10 |
+| Code enumeration | R1 |
+| Cache poisoning | R3 |
+| DoS on the redirect path | R4, R5, R6, I8 |
+| API key theft | A1, A2 |
+| IDOR across owners | A3, P8 |
+| SSRF (we never fetch destination URLs) | A10 |
+| Viewer IP/country header spoofing | R7, I1 |
+| Supply chain (pinned actions, image scanning, govulncheck) | C5, C6, C7 |
+| CI role abuse (OIDC `sub` conditions, permissions boundary) | C1, C2, C3 |
+| Data exfiltration (endpoint policies, KMS) | I3, I5 |
+| Log injection | R9 |
+| Analytics privacy | R8, P5 |
+
+## 11. Accepted and residual risks
 
 | Risk | Rationale |
 | --- | --- |
@@ -162,7 +245,7 @@ L = likelihood, I = impact (H/M/L).
 | Viewer TLS policy fixed by AWS on `*.cloudfront.net` | TLSv1.2_2021 is enforced when the custom domain + ACM certificate is configured. |
 | No ECS Exec | Read-only root filesystems and distroless images rule it out; diagnosis via logs, metrics and `/healthz` (ADR-0003). |
 
-## 9. Scanner suppressions
+## 12. Scanner suppressions
 
 Every scanner suppression in the repository (`nolint`, `#checkov:skip`,
 `.trivyignore`, tflint ignores, gitleaks allowlists) must have a row here and an

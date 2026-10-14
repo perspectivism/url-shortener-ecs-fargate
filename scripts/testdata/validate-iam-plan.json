@@ -1,0 +1,22 @@
+{
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {"address": "aws_iam_role.r", "mode": "managed", "type": "aws_iam_role",
+         "values": {"assume_role_policy": "{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Service\": \"ecs-tasks.amazonaws.com\"}, \"Action\": \"sts:AssumeRole\"}]\n}"}},
+        {"address": "aws_iam_role_policy.p", "mode": "managed", "type": "aws_iam_role_policy", "values": {}},
+        {"address": "data.aws_iam_policy_document.d", "mode": "data", "type": "aws_iam_policy_document", "values": {"json": "{}"}}
+      ],
+      "child_modules": [
+        {"resources": [
+          {"address": "module.k.aws_kms_key.this", "mode": "managed", "type": "aws_kms_key",
+           "values": {"policy": "{\"Version\":\"2012-10-17\",\"Statement\":[]}", "resources": ["not-a-module"]}},
+          {"address": "module.k.aws_vpc_endpoint.gw", "mode": "managed", "type": "aws_vpc_endpoint", "values": {"policy": null}}
+        ]}
+      ]
+    }
+  },
+  "resource_changes": [
+    {"address": "aws_iam_role_policy.p", "change": {"after_unknown": {"policy": true}}}
+  ]
+}

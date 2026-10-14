@@ -54,6 +54,7 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 | [aws_iam_policy_document.dynamodb_endpoint](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.flow_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.flow_logs_trust](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.interface_endpoint](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.s3_endpoint](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
 | [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
@@ -65,6 +66,7 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 | dynamodb\_table\_name\_prefix | DynamoDB tables reachable through the gateway endpoint (name prefix). | `string` | n/a | yes |
 | kms\_key\_arn | CMK for the flow-log log group. | `string` | n/a | yes |
 | name\_prefix | Resource name prefix, e.g. "shortener-dev". | `string` | n/a | yes |
+| s3\_bucket\_name\_prefix | S3 buckets reachable through the gateway endpoint (name prefix, e.g. "shortener-dev-"). | `string` | n/a | yes |
 | az\_count | Number of Availability Zones (2 in dev, 3 in prod). | `number` | `2` | no |
 | cidr\_block | VPC IPv4 CIDR (a /16 is split into /24 public and /20 private subnets). | `string` | `"10.20.0.0/16"` | no |
 | ecs\_exec\_enabled | Add the ssmmessages interface endpoint required by ECS Exec. | `bool` | `false` | no |

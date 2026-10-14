@@ -29,6 +29,7 @@ variables {
   name_prefix                = "shortener-test"
   kms_key_arn                = "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555"
   dynamodb_table_name_prefix = "shortener-test-"
+  s3_bucket_name_prefix      = "shortener-test-"
 }
 
 # command = apply with mock_provider only simulates (no AWS calls) and makes
@@ -95,8 +96,39 @@ run "dev_defaults_have_no_nat_and_isolated_tier_has_no_default_route" {
   }
 
   assert {
+    condition = alltrue([
+      for s in data.aws_iam_policy_document.s3_endpoint.statement :
+      !contains(s.actions, "s3:*") && !contains(s.resources, "*")
+    ])
+    error_message = "The S3 gateway endpoint must name actions and buckets (no s3:* or \"*\")."
+  }
+
+  assert {
+    condition     = contains(flatten([for s in data.aws_iam_policy_document.s3_endpoint.statement : s.resources]), "arn:aws:s3:::shortener-test-*/*")
+    error_message = "The S3 gateway endpoint must be limited to this environment's buckets."
+  }
+
+  assert {
     condition     = contains(flatten([for s in data.aws_iam_policy_document.dynamodb_endpoint.statement : s.resources]), "arn:aws:dynamodb:us-east-1:123456789012:table/shortener-test-*")
     error_message = "The DynamoDB gateway endpoint must be limited to this environment's tables."
+  }
+
+  assert {
+    condition = alltrue([
+      for v in ["aws:PrincipalAccount", "aws:ResourceAccount"] :
+      alltrue([for d in data.aws_iam_policy_document.interface_endpoint : anytrue([for c in one(d.statement).condition : c.variable == v && c.values == tolist(["123456789012"])])])
+    ])
+    error_message = "Interface endpoints must admit only this account's principals and resources."
+  }
+
+  assert {
+    condition     = alltrue([for k, e in aws_vpc_endpoint.interface : e.policy != null if k != "ssmmessages"])
+    error_message = "Every interface endpoint (except ssmmessages) carries the data-perimeter policy."
+  }
+
+  assert {
+    condition     = alltrue([for k, d in data.aws_iam_policy_document.interface_endpoint : one(d.statement).actions == toset(["${split(".", k)[0]}:*"])])
+    error_message = "Each endpoint policy is limited to its own service (no \"*\" action)."
   }
 }
 

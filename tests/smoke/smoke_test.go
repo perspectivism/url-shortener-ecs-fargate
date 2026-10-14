@@ -9,6 +9,9 @@
 //	SMOKE_API_KEY_2        optional second owner's key (cross-owner checks)
 //	SMOKE_EXPECT_SCANNING  "true" if the environment scans URLs (Google's test URL must be rejected)
 //	SMOKE_STATS_TIMEOUT    how long to wait for click counts (default 2m, SPEC N4)
+//	SMOKE_ALB_DNS          internal ALB DNS name (output alb_dns_name): must NOT be reachable
+//	SMOKE_WAF_BURST        "true" to burst past the WAF /api/* rate rule and expect 429; it
+//	                       rate-limits the runner's IP for about a minute, so it is opt-in
 package smoke
 
 import (
@@ -20,6 +23,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -203,4 +208,78 @@ func TestSecurityNegatives(t *testing.T) {
 		want(t, do(t, m, c.api+"/api/v1/links/"+code, c.key2, "", nil), http.StatusNotFound, "cross-owner "+m)
 	}
 	want(t, do(t, http.MethodGet, c.api+"/api/v1/links/"+code+"/stats", c.key2, "", nil), http.StatusNotFound, "cross-owner stats")
+}
+
+// TestALBNotPublic: the origin is an internal ALB reachable only through the
+// CloudFront VPC origin (ADR-0012), so its DNS name must not answer from here.
+func TestALBNotPublic(t *testing.T) {
+	dns := os.Getenv("SMOKE_ALB_DNS")
+	if dns == "" {
+		t.Skip("SMOKE_ALB_DNS not set (terraform output alb_dns_name)")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+dns+"/healthz", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := (&http.Client{}).Do(req)
+	if err == nil {
+		r.Body.Close()
+		t.Fatalf("internal ALB answered from the public internet: status %d", r.StatusCode)
+	}
+	t.Logf("ALB unreachable as expected: %v", err)
+}
+
+// TestWAFRateLimit bursts unauthenticated /api/* requests (cheap 401s) past the
+// per-IP WAF rate rule and expects the edge to answer 429 with Retry-After.
+// Runs last: afterwards this IP is rate-limited for about a minute.
+func TestWAFRateLimit(t *testing.T) {
+	if os.Getenv("SMOKE_WAF_BURST") != "true" {
+		t.Skip("SMOKE_WAF_BURST != true (opt-in: rate-limits this IP)")
+	}
+	c := load(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	var sent, limited atomic.Int64
+	var retryAfter atomic.Value
+	var wg sync.WaitGroup
+	tick := time.NewTicker(25 * time.Millisecond) // ~40 req/s, well past 300/min
+	defer tick.Stop()
+	for limited.Load() == 0 && ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+		case <-tick.C:
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.api+"/api/v1/links", nil)
+				if err != nil {
+					return
+				}
+				req.Header.Set("User-Agent", browserUA)
+				r, err := client.Do(req)
+				if err != nil {
+					return
+				}
+				_, _ = io.Copy(io.Discard, r.Body)
+				r.Body.Close()
+				sent.Add(1)
+				if r.StatusCode == http.StatusTooManyRequests {
+					retryAfter.Store(r.Header.Get("Retry-After"))
+					limited.Add(1)
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	if limited.Load() == 0 {
+		t.Fatalf("no 429 after %d requests in %s", sent.Load(), 4*time.Minute)
+	}
+	ra, _ := retryAfter.Load().(string)
+	if ra == "" {
+		t.Fatal("429 without Retry-After")
+	}
+	t.Logf("WAF rate rule answered 429 (Retry-After %s) after %d requests", ra, sent.Load())
 }

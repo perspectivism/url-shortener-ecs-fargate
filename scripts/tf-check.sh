@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Static checks for all Terraform (SPEC §18 M4): fmt, validate, tflint,
-# checkov, Trivy config, terraform test, dev/prod parity and README freshness.
+# checkov, Trivy config, terraform test, plan/metric/IAM self-checks, dev/prod
+# parity and README freshness.
 # Never touches AWS.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -64,6 +65,18 @@ fi
 [[ "$(grep -c ': ' <<<"$bad")" -ge 4 ]] || { echo "$bad" >&2; echo "FAIL: not every violation was reported" >&2; exit 1; }
 echo "check-plan-invariants.sh rejects all 4 violations in the bad fixture"
 scripts/check-metrics.sh
+
+step "security review (offline): suppressions, IAM wildcards, validate-iam self-test"
+python3 -I scripts/check_suppressions.py
+python3 -I scripts/check_iam_wildcards.py infra
+if python3 -I scripts/check_iam_wildcards.py scripts/testdata/iam-wildcards-bad.tf.txt 2>/dev/null; then
+  echo "FAIL: check_iam_wildcards.py accepted the bad fixture" >&2
+  exit 1
+fi
+viam="$(scripts/validate-iam.sh scripts/testdata/validate-iam-plan.json --dry-run --allow-unknown | tail -1)"
+[[ "$viam" == "policies: 3, validated: 0, failed: 0, unknown until apply: 1 (dry run)" ]] ||
+  { echo "FAIL: validate-iam.sh extraction self-test: $viam" >&2; exit 1; }
+echo "validate-iam.sh extracts the fixture's 3 policies (1 unknown); Access Analyzer itself runs via make validate-iam"
 
 step "dev/prod parity"
 scripts/check-env-parity.sh

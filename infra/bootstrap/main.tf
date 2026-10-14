@@ -142,11 +142,16 @@ locals {
 }
 
 data "aws_iam_policy_document" "boundary" {
+  # Justification (M7 IAM review): this is the ceiling for a Terraform deploy
+  # role, which must create, update and delete every resource type in the
+  # listed services; ARNs do not exist before creation, so resources cannot be
+  # enumerated. The Deny statements below carve out what must never happen
+  # (long-lived credentials, unbounded roles, bootstrap and state tampering).
   statement {
     sid       = "ProjectServices"
     effect    = "Allow"
-    actions   = concat([for s in local.managed_services : "${s}:*"], ["sts:GetCallerIdentity", "access-analyzer:ValidatePolicy", "ssmmessages:*"])
-    resources = ["*"]
+    actions   = concat([for s in local.managed_services : "${s}:*"], ["sts:GetCallerIdentity", "access-analyzer:ValidatePolicy", "ssmmessages:*"]) # service-level ceiling, see above
+    resources = ["*"]                                                                                                                              # resources do not exist before apply
   }
 
   statement {
@@ -303,11 +308,16 @@ resource "aws_iam_role_policy" "plan" {
 data "aws_iam_policy_document" "apply" {
   for_each = var.environments
 
+  # Justification (M7 IAM review): the apply role is Terraform's deploy role
+  # and must manage every resource type in the project's services, before
+  # their ARNs exist. It is bounded by the permissions boundary, the Deny
+  # statements below (other environment's state and tagged resources), and
+  # the GitHub OIDC trust (one repository environment per role).
   statement {
     sid       = "ProjectServices"
     effect    = "Allow"
-    actions   = concat([for s in local.managed_services : "${s}:*"], ["sts:GetCallerIdentity", "access-analyzer:ValidatePolicy"])
-    resources = ["*"]
+    actions   = concat([for s in local.managed_services : "${s}:*"], ["sts:GetCallerIdentity", "access-analyzer:ValidatePolicy"]) # service-level, see above
+    resources = ["*"]                                                                                                             # resources do not exist before apply
   }
 
   statement {

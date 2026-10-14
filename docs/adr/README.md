@@ -28,3 +28,4 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0020](0020-graviton-arm64-and-fargate-spot.md) | Graviton (ARM64) and Fargate Spot usage | Accepted |
 | [0021](0021-url-safety-scanning-safe-browsing-v5.md) | URL safety scanning with Safe Browsing v5 `urls:search` | Accepted |
 | [0022](0022-observability-alerting-and-cost-guardrails.md) | Observability, alerting and cost guardrails | Accepted |
+| [0023](0023-iam-review-data-perimeter-and-waf-tuning.md) | IAM review, VPC endpoint data perimeter and WAF tuning | Accepted |

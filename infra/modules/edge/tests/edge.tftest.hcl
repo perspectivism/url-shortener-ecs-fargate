@@ -145,6 +145,22 @@ run "waf_rules_and_logging" {
   }
 
   assert {
+    condition = (
+      max([for r in aws_wafv2_web_acl.this.rule : r.priority if startswith(r.name, "rate-")]...) <
+      min([for r in aws_wafv2_web_acl.this.rule : r.priority if !startswith(r.name, "rate-")]...)
+    )
+    error_message = "Rate rules must be evaluated before the managed rule groups so they count every request."
+  }
+
+  assert {
+    condition = anytrue([
+      for r in aws_wafv2_web_acl.this.rule : r.name == "rate-api" &&
+      one(one(one(r.action).block).custom_response).response_header == toset([{ name = "Retry-After", value = "60" }])
+    ])
+    error_message = "Rate-limited responses must carry Retry-After."
+  }
+
+  assert {
     condition     = one(one(aws_wafv2_web_acl_logging_configuration.this.redacted_fields).single_header).name == "authorization"
     error_message = "WAF logs must redact the Authorization header."
   }

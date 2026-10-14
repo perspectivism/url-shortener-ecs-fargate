@@ -411,10 +411,13 @@ resource "aws_wafv2_web_acl" "this" {
     }
   }
 
+  # Rate rules run first (M7 tuning): a rate-based rule only counts requests
+  # that reach it, so behind the managed groups it would miss every request
+  # they already blocked, and a flooding client would never be rate-limited.
   dynamic "rule" {
     for_each = {
-      rate-api      = { priority = 50, limit = var.api_rate_limit_per_minute, negate = false }
-      rate-redirect = { priority = 60, limit = var.redirect_rate_limit_per_minute, negate = true }
+      rate-api      = { priority = 1, limit = var.api_rate_limit_per_minute, negate = false }
+      rate-redirect = { priority = 2, limit = var.redirect_rate_limit_per_minute, negate = true }
     }
     content {
       name     = rule.key

@@ -208,8 +208,10 @@ push-images: ## Push the commit's arm64 images to ECR for ENV — APPROVAL REQUI
 	@scripts/push-images.sh $(ENV)
 
 .PHONY: validate-iam
-validate-iam: ## IAM Access Analyzer validate-policy over planned policies
-	$(call nyi,M7)
+validate-iam: tools-check ## IAM Access Analyzer validate-policy over every policy in ENV's saved plan (make plan first; read-only)
+	@f=infra/$(if $(filter bootstrap,$(ENV)),bootstrap,envs/$(ENV))/tfplan.json; \
+	test -f "$$f" || { echo "no $$f: run make plan ENV=$(ENV) first" >&2; exit 2; }; \
+	scripts/validate-iam.sh "$$f" $(if $(ALLOW_UNKNOWN),--allow-unknown)
 
 ##@ Verification
 
@@ -231,6 +233,7 @@ docs-check: tools-check ## markdownlint, Mermaid render, relative link check
 	markdownlint-cli2
 	@scripts/check-mermaid.sh
 	@scripts/check-links.sh
+	@python3 -I scripts/check_threat_model.py
 
 .PHONY: ci
 ci: ## Everything CI runs, locally

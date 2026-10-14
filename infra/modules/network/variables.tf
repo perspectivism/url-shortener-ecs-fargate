@@ -75,6 +75,16 @@ variable "dynamodb_table_name_prefix" {
   type        = string
 }
 
+variable "s3_bucket_name_prefix" {
+  description = "S3 buckets reachable through the gateway endpoint (name prefix, e.g. \"shortener-dev-\")."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{2,40}-$", var.s3_bucket_name_prefix))
+    error_message = "s3_bucket_name_prefix must be a lowercase bucket-name prefix ending in a hyphen."
+  }
+}
+
 variable "permissions_boundary_arn" {
   description = "Permissions boundary for IAM roles this module creates (the CI boundary from infra/bootstrap; null for none)."
   type        = string
