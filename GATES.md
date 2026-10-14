@@ -13,6 +13,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M3 🐳 Containers](#m3--containers---closed)
 - [M4 🏗️ Bootstrap, network & data](#m4-️-bootstrap-network--data---closed-local)
 - [M5 🚀 ECS services & edge](#m5--ecs-services--edge---closed-local)
+- [M6 📈 Observability & cost](#m6--observability--cost---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -200,6 +201,40 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   6. ☁️ Nightly runs successfully via a manual `aws ecs run-task` (parameters from output `nightly_run_task`); check exit code 0 and the summary log line.
   7. ☁️ Forced bad deploy: throwaway apply with a non-existent `image_tag` (or an image whose health check fails) → circuit breaker rolls back; record the rollback event, then re-apply the good tag.
 
+## M6 📈 Observability & cost — 🟡 closed-local
+
+- **Date:** 2026-10-14T23:30Z
+- **Commit:** see tag `gate-m6-local`
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Every §13 alarm exists with an SNS action | `make tf-check` (`observability`, `envs/{dev,prod}` tests) | ✅ | phase 1: 4 data-tier alarms; phase 2: 14 alarms (SPEC set + `cache-invalidation-failed`), each with ALARM **and** OK → CMK-encrypted topic; 5xx as a rate (metric math), p99 > 100 ms × 10 min, dropped clicks 3 × 5 min; nightly log filter + Scheduler errors + EventBridge non-zero exit → SNS |
+| Every log group has retention + KMS | `make tf-check` (module tests + `check-plan-invariants.sh` self-test) | ✅ | Container Insights log group now Terraform-managed (retention + CMK; prefix added to the key policy); invariant script rejects all 4 seeded violations and runs on every `make plan` |
+| Budget + anomaly detection | `make tf-check` (`budget` tests) | ✅ | 50/80/100 % actual + 100 % forecast → SNS; tag monitor + IMMEDIATE subscription; scoped to `CostCenter = shortener-{env}` |
+| EMF metrics verified | `scripts/check-metrics.sh` (in `make tf-check`) | ✅ | 17/17 SPEC §13 metrics defined, emitted by non-test code and on the dashboard |
+| Static checks | `make tf-check` | ✅ | validate 3 roots + 16 modules; tflint 0; checkov 874 passed / 0 failed / 75 justified skips; Trivy 0; terraform test 57 runs in 19 suites; parity incl. env tests |
+| k6 script | `make load` against the local compose stack (20 s, 15 req/s) | ✅ | 0 % failed; redirect p99 9.7 ms (local, not a cloud baseline); setup/teardown honour 429 `Retry-After`; all links deleted |
+| Regression | `make lint test docs-check test-secret-scan secret-scan check-ignore vuln` | ✅ | lint 0 issues; coverage 97.7 %; 25/25 diagrams, 147+ links; gitleaks clean; govulncheck: no vulnerabilities |
+| Plans (phase 1/2, dev/prod) | `make plan ENV=…` | ⏸️ | **not run**: the AWS CLI session expired (`aws login` required) — read-only plans moved to pending; offline equivalent: `envs/{dev,prod}` mock-provider tests plan both phases |
+
+- **Decisions / ADRs:** ADR-0022 (observability, alerting and cost guardrails). Runbook v0.2 (SLIs/SLOs, alarm responses), cost model v0.3, design §4, threat model v0.3.
+- **Deviations / assumptions:**
+  - `CostCenter = <project>-<env>` added to `default_tags` (SPEC §12.1 lists five tags): customer-managed anomaly monitors filter on a single tag key, and `Environment` is not project-unique in a shared account. Activation is a second bootstrap apply (`activate_cost_allocation_tag = true`) once Billing has seen the tag (≤ 24 h).
+  - Tag-based anomaly monitors only work in a management/standalone account (AWS docs); in an Organizations member account that resource fails to create (future work: account-level monitor).
+  - Extra alarm `cache-invalidation-failed` (the threat model's accepted stale-redirect risk depends on it).
+  - The nightly schedule now lives in its own schedule group so `AWS/Scheduler` metrics (dimension `ScheduleGroup`) are environment-scoped.
+  - Container Insights stays `enabled` (standard): the running-tasks alarms need `DesiredTaskCount`/`RunningTaskCount`; it adds ≈ $15–30/month per environment (cost.md).
+  - Budget defaults: dev $150, prod $400/month; cost model revised to ≈ $110–135 (dev phase 2) and ≈ $255–270 (prod idle) after adding CloudWatch line items.
+- **Pending (closed-local):**
+  1. ☁️ Re-authenticate the AWS CLI (`aws login`), then the read-only plans: `make plan ENV=dev` (phase 1 and 2) — plan invariants must print OK.
+  2. ☁️ Apply the M6 changes with the dev phase-2 apply (`alert_email` set in `terraform.tfvars`) → approve → `APPROVED=yes make apply ENV=dev`.
+  3. 👤 Confirm the SNS subscription email; verify with `aws sns list-subscriptions-by-topic --topic-arn $(terraform output -raw alert_topic_arn)` (no `PendingConfirmation`).
+  4. ☁️ `aws cloudwatch set-alarm-state --alarm-name shortener-dev-dlq --state-value ALARM --state-reason "alert path test"` → 👤 confirm the email arrived (and the OK email after re-evaluation).
+  5. ☁️ k6 baseline: dev API key in `LOAD_API_KEY`; `make load BASE_URL=<cloudfront>` (default 15 req/s × 2 min), then `scripts/load-report.sh dev <start> <end>`; record RPS, p50/p95/p99 (client and ALB), error rate, cache hit ratio here.
+  6. ☁️ Dashboard `shortener-dev` shows data in every widget (Cost widget needs "Receive Billing Alerts").
+  7. ☁️ After ≥ 24 h: `activate_cost_allocation_tag = true` in bootstrap → plan → approve → apply; after ≥ 3 days record measured spend in cost.md §7.
+
 ## 📋 Pending cloud checks summary
 
 Cumulative, in execution order. Hand this list back when ready to deploy.
@@ -212,3 +247,6 @@ Cumulative, in execution order. Hand this list back when ready to deploy.
 6. **M5** — Phase 2: `enable_services = true`, `image_tag = <sha>`; `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev`.
 7. **M5** — Services steady, targets healthy; API key for dev; `make smoke BASE_URL=<cloudfront>`.
 8. **M5** — ALB DNS unreachable from the internet; manual nightly run succeeds; forced bad deploy triggers circuit-breaker rollback (evidence recorded).
+9. **M6** — `aws login`; read-only `make plan ENV=dev` (both phases, plan invariants OK); dev apply with `alert_email` (approval); 👤 confirm the SNS subscription.
+10. **M6** — `set-alarm-state` on `shortener-dev-dlq` → 👤 email received; k6 baseline (`make load` + `scripts/load-report.sh`) recorded; dashboard widgets show data.
+11. **M6** — ≥ 24 h later: bootstrap `activate_cost_allocation_tag = true` (approval); ≥ 3 days later: measured spend into cost.md §7.
