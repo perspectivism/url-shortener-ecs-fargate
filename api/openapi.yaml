@@ -1,0 +1,604 @@
+openapi: 3.1.0
+info:
+  title: URL Shortener API
+  version: 1.0.0
+  summary: Create and manage short links; resolve short codes.
+  description: |
+    The public redirect endpoints (`/{code}`, served by the redirect service) and
+    the authenticated management API (`/api/v1`, served by the api service).
+    All errors are RFC 9457 `application/problem+json`. Request bodies are
+    limited to 8 KiB.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://localhost:8080
+    description: Local redirect service (compose)
+  - url: http://localhost:8081
+    description: Local API service (compose)
+security:
+  - bearerAuth: []
+tags:
+  - name: redirect
+    description: Public short-link resolution
+  - name: links
+    description: Link management
+  - name: admin
+    description: Operator actions
+  - name: health
+    description: Liveness
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      operationId: healthz
+      summary: Liveness check (used by ALB and ECS health checks)
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /{code}:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    get:
+      tags: [redirect]
+      operationId: redirect
+      summary: Resolve a short code (302, never cached at the edge)
+      security: []
+      responses:
+        "302":
+          $ref: "#/components/responses/Redirect"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    head:
+      tags: [redirect]
+      operationId: redirectHead
+      summary: Resolve a short code without recording a click
+      security: []
+      responses:
+        "302":
+          $ref: "#/components/responses/Redirect"
+        "404":
+          description: Unknown code
+        "410":
+          description: Expired, disabled or deleted
+        "503":
+          description: Backend unavailable
+
+  /api/v1/links:
+    post:
+      tags: [links]
+      operationId: createLink
+      summary: Create a short link
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLinkRequest"
+      responses:
+        "201":
+          description: Created (or replayed for a repeated Idempotency-Key)
+          headers:
+            Location:
+              description: API path of the new link
+              schema:
+                type: string
+            Idempotent-Replayed:
+              description: Present (true) when the response is a replay
+              schema:
+                type: string
+                enum: ["true"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    get:
+      tags: [links]
+      operationId: listLinks
+      summary: List the caller's links, newest first
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor from a previous page's next_cursor
+          schema:
+            type: string
+            maxLength: 2048
+      responses:
+        "200":
+          description: A page of links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v1/links/{code}:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    get:
+      tags: [links]
+      operationId: getLink
+      summary: Get one of the caller's links (404 for other owners' links)
+      responses:
+        "200":
+          $ref: "#/components/responses/LinkOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    patch:
+      tags: [links]
+      operationId: updateLink
+      summary: Update destination and/or expiry (a new destination is re-scanned)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLinkRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LinkOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      tags: [links]
+      operationId: deleteLink
+      summary: Soft-delete a link (the short URL then returns 410)
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v1/admin/links/{code}/disable:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    post:
+      tags: [admin]
+      operationId: disableLink
+      summary: Disable any link (kill switch); requires the admin scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisableRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LinkOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v1/admin/links/{code}/enable:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    post:
+      tags: [admin]
+      operationId: enableLink
+      summary: Re-enable a disabled link unless it has expired; requires the admin scope
+      responses:
+        "200":
+          $ref: "#/components/responses/LinkOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "API key: `shortener_{env}_` followed by 43 base64url characters."
+
+  parameters:
+    Code:
+      name: code
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{1,32}$"
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Replays the original 201 response for 24 h when repeated with the same body.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+
+  headers:
+    RetryAfter:
+      description: Seconds until the rate-limit window resets
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    Redirect:
+      description: Found — redirect to the destination
+      headers:
+        Location:
+          required: true
+          schema:
+            type: string
+            format: uri
+        Cache-Control:
+          required: true
+          schema:
+            type: string
+            const: "private, no-store, max-age=0"
+        X-Robots-Tag:
+          schema:
+            type: string
+            const: noindex
+        Referrer-Policy:
+          schema:
+            type: string
+            const: no-referrer-when-downgrade
+    LinkOK:
+      description: The link
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Link"
+    BadRequest:
+      description: Invalid request (`invalid_request`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Missing or invalid API key (`unauthorized`)
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: API key lacks the required scope (`forbidden`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Not found, or not owned by the caller (`not_found`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: Alias already in use (`alias_taken`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Gone:
+      description: Expired, disabled or deleted (`gone`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: Body over 8 KiB (`payload_too_large`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: Content-Type is not application/json (`unsupported_media_type`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unprocessable:
+      description: Invalid or unsafe destination URL (`invalid_url`, `unsafe_url`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    RateLimited:
+      description: Rate limit exceeded (`rate_limited`)
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Internal:
+      description: Unexpected error (`internal`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unavailable:
+      description: A dependency is unavailable (`unavailable`)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details
+      additionalProperties: false
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          pattern: "^urn:shortener:problem:[a-z_]+$"
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        code:
+          type: string
+          enum:
+            - invalid_request
+            - unauthorized
+            - forbidden
+            - not_found
+            - method_not_allowed
+            - alias_taken
+            - gone
+            - payload_too_large
+            - unsupported_media_type
+            - unsafe_url
+            - invalid_url
+            - rate_limited
+            - internal
+            - unavailable
+        request_id:
+          type: string
+
+    Timestamp:
+      type: string
+      format: date-time
+      pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+
+    Link:
+      type: object
+      additionalProperties: false
+      required: [code, short_url, url, status, custom, scan_status, created_at, updated_at]
+      properties:
+        code:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{1,32}$"
+        short_url:
+          type: string
+          format: uri
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        status:
+          type: string
+          enum: [active, disabled, deleted]
+        custom:
+          type: boolean
+        scan_status:
+          type: string
+          enum: [clean, pending, flagged]
+        disabled_reason:
+          type: string
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    LinkSummary:
+      type: object
+      additionalProperties: false
+      required: [code, short_url, url, status, created_at]
+      properties:
+        code:
+          type: string
+        short_url:
+          type: string
+          format: uri
+        url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [active, disabled]
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    LinkList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/LinkSummary"
+        next_cursor:
+          type: string
+
+    CreateLinkRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+          description: http(s) destination; normalized (IDN to punycode, default port removed)
+        alias:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{4,32}$"
+          description: Optional custom code (reserved words rejected)
+        expires_at:
+          type: string
+          format: date-time
+          description: Future RFC 3339 timestamp, at most 5 years ahead
+
+    UpdateLinkRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+        expires_at:
+          description: New expiry, or null to remove it
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+
+    DisableRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 256

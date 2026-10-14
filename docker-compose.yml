@@ -1,0 +1,28 @@
+# Local development stack: AWS service emulators (SPEC §15).
+# Images are pinned by tag and digest. Ports bind to 127.0.0.1 only.
+# The application services are added in M3 (profile "app").
+name: url-shortener
+
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:3.3.1@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports: ["127.0.0.1:8000:8000"]
+
+  valkey:
+    image: valkey/valkey:9.0.6-alpine3.24@sha256:187679e3bd4036959631e3f03983ab2ba503ab21e6fd0454d508e909db2ee989
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  sqs:
+    image: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+    ports: ["127.0.0.1:9324:9324"]
+
+  s3:
+    image: adobe/s3mock:5.2.3@sha256:ab01a6946750f451ca215a47e91030695b260e4003b8a5a6201d25029b8fca92
+    ports: ["127.0.0.1:9090:9090"]

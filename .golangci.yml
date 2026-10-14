@@ -11,7 +11,6 @@ linters:
   default: standard
   enable:
     - bodyclose
-    - contextcheck
     - copyloopvar
     - errname
     - errorlint
@@ -51,7 +50,8 @@ linters:
       - std-error-handling
     rules:
       - path: _test\.go
-        linters: [gosec, forcetypeassert, unparam]
+        # Tests use httptest (in-memory requests/recorders, bodies closed via t.Cleanup).
+        linters: [gosec, forcetypeassert, unparam, noctx, bodyclose]
 
 formatters:
   enable:

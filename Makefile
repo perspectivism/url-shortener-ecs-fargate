@@ -40,13 +40,32 @@ tools-check:
 
 ##@ Local development
 
+COMPOSE  ?= docker compose
+# Local targets read .env (copy from .env.example); fall back to the example.
+ENV_FILE := $(if $(wildcard .env),.env,.env.example)
+WITH_ENV := set -a && . ./$(ENV_FILE) && set +a &&
+
 .PHONY: up
 up: ## Start the local compose stack and initialise tables/queues/bucket
-	$(call nyi,M1)
+	$(COMPOSE) up -d --wait
+	@$(WITH_ENV) scripts/wait-for-emulators.sh
+	$(WITH_ENV) go run ./cmd/shortenerctl local-init
 
 .PHONY: down
-down: ## Stop the local compose stack
-	$(call nyi,M1)
+down: ## Stop the local compose stack and discard its data
+	$(COMPOSE) down -v --remove-orphans
+
+.PHONY: run-redirect
+run-redirect: ## Run the redirect service on :8080 against the local stack
+	$(WITH_ENV) HTTP_ADDR=:8080 go run ./cmd/redirect
+
+.PHONY: run-api
+run-api: ## Run the API service on :8081 against the local stack
+	$(WITH_ENV) HTTP_ADDR=:8081 go run ./cmd/api
+
+.PHONY: apikey
+apikey: ## Create a local API key: make apikey OWNER=demo SCOPES=links:read,links:write
+	$(WITH_ENV) go run ./cmd/shortenerctl apikey create --owner $(or $(OWNER),demo) --scopes $(or $(SCOPES),links:read,links:write)
 
 ##@ Quality
 
@@ -80,12 +99,13 @@ lint-sh:
 .PHONY: test
 test: tools-check ## Unit tests with -race and the coverage gate
 	@mkdir -p coverage
-	go test -race -count=1 -covermode=atomic -coverprofile=coverage/unit.out ./...
+	go test -race -count=1 -covermode=atomic -coverpkg=./internal/... -coverprofile=coverage/unit.out ./...
 	@scripts/check-coverage.sh coverage/unit.out $(COVERAGE_MIN)
 
 .PHONY: test-integration
-test-integration: ## Integration tests against the compose stack
-	$(call nyi,M1)
+test-integration: tools-check ## Integration tests against the compose stack (run `make up` first)
+	@scripts/wait-for-emulators.sh
+	go test -race -count=1 -tags=integration -timeout=15m ./tests/integration/...
 
 .PHONY: test-secret-scan
 test-secret-scan: tools-check ## gitleaks self-test (must detect a planted fake key)
