@@ -15,6 +15,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M5 🚀 ECS services & edge](#m5--ecs-services--edge---closed-local)
 - [M6 📈 Observability & cost](#m6--observability--cost---closed-local)
 - [M7 🛡️ Security hardening](#m7-️-security-hardening---closed-local)
+- [M8 🔁 CI/CD](#m8--cicd---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -264,6 +265,36 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   2. ☁️ Smoke security negatives through CloudFront: `SMOKE_ALB_DNS=$(terraform output -raw alb_dns_name) SMOKE_API_KEY_2=<second owner> make smoke BASE_URL=<cloudfront>`; then `SMOKE_WAF_BURST=true` for the 429 burst (last; rate-limits the runner IP ≈ 1 min). With scanning enabled (prod-like) also `SMOKE_EXPECT_SCANNING=true` → 422.
   3. ☁️ Endpoint data perimeter works: all services steady (ECR pull, logs, secrets through the endpoints); clicks reach the worker (SQS endpoint).
 
+## M8 🔁 CI/CD — 🟡 closed-local
+
+- **Date:** 2026-10-15T01:30Z
+- **Commit:** see tag `gate-m8-local`
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| actionlint | `make check-workflows` | ✅ | `ci.yml`, `deploy.yml`: 0 issues |
+| Every `uses:` pinned to a 40-char SHA | `scripts/check-pins.sh` (in `make check-workflows`) | ✅ | 23 action references (full SHAs + version comments), 6 container images by digest, exact tool versions, no `latest`; negative probe (`@v4`, missing comment) rejected |
+| zizmor medium+ | `zizmor --offline --min-severity medium .github/workflows` | ✅ | no findings (also none with `--persona auditor`) |
+| CI steps locally | `make ci` | ✅ | lint 0 issues; coverage 97.7 %; govulncheck clean; gitleaks 19 commits clean; integration 72 s green; images arm64, UID 65532, 15.6–17.2 MB, Trivy 0 fixable HIGH/CRITICAL; tf-check (checkov 884/0, 57 test runs); docs-check; check-workflows |
+| OIDC trust policies | `terraform test` (`infra/bootstrap`) | ✅ | `aud = sts.amazonaws.com`; exact `sub` (StringEquals, one value, no wildcards): plan → `repo:<repo>:pull_request`, apply → `repo:<repo>:environment:<env>`; only these three roles trust GitHub; all carry the boundary |
+| Build once, promote digests | `make images-oci` + `scripts/push-images.sh` against a local `crane registry serve` | ✅ | 4 single-manifest arm64 layouts (UID 65532); dev and prod pushes report identical digests; re-push idempotent; dirty tag and missing approval refused |
+
+- **Decisions / ADRs:** ADR-0017 completed (Accepted): workflows, approvals, digest promotion, hardening. Runbook §5.1 CI/CD setup, §5.2 deploy, §5.3 rollback. Threat model C5/C6/C9 updated.
+- **Deviations / assumptions:**
+  - Images are promoted as OCI layouts (built once in `deploy.yml`, pushed with pinned `crane`, digest verified per environment) because each environment has its own ECR repositories and the apply roles cannot cross environments (ADR-0019 guardrail).
+  - Provenance/SBOM attestations are disabled to keep one manifest digest per image (signing is future work).
+  - `make push-images` now pushes the OCI layouts from `make images-oci` (was: docker push of `make images`), so manual and CI deploys share one path.
+  - The `deploy` pipeline assumes phase 1 is applied and secrets are seeded; it always deploys with `enable_services = true`.
+  - `.github/CODEOWNERS` contains the placeholder `@OWNER` for the human to replace.
+  - **Flake observed once:** in the first `make ci` run `TestKeyRangeAllocationNoDuplicates` reported 136 of 10,000 creates failing (0 duplicates). Not reproducible in 7 further runs (3 alone, 3 under parallel `go test -race` load, 2 full suites) nor in the full `make ci` reruns. The test now records failure reasons (status/problem code or transport error) so a recurrence is diagnosable; suspected cause: DynamoDB Local latency spikes beyond the 200 ms deadline (→ 503). No assertion was loosened.
+- **Pending (closed-local):**
+  1. 👤 Push the repository to GitHub; replace `@OWNER` in `.github/CODEOWNERS`.
+  2. 👤 Configure repository variables, environments `dev`/`prod` (deployment branch `main`; `prod` required reviewers + prevent self-review), environment variables and the `SMOKE_API_KEY` secrets — exact commands in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin).
+  3. 👤 Branch ruleset on `main`: PR + 1 approval + code owners; required checks (the five `ci` jobs and `terraform plan (dev)`); block force pushes.
+  4. 👤 Open a PR: `ci` green, plan comment posted by `terraform plan (dev)`.
+  5. ☁️ Merge: `deploy` builds once, dev pushes with verified digests, applies, smoke passes; the `prod` job **waits for approval** (the agent does not approve).
+
 ## 📋 Pending cloud checks summary
 
 Cumulative, in execution order. Hand this list back when ready to deploy.
@@ -281,3 +312,5 @@ Cumulative, in execution order. Hand this list back when ready to deploy.
 11. **M6** — ≥ 24 h later: bootstrap `activate_cost_allocation_tag = true` (approval); ≥ 3 days later: measured spend into cost.md §7.
 12. **M7** — Endpoint data perimeter verified by steady services; `make plan ENV=dev` + `make validate-iam ENV=dev` (and `ENV=bootstrap`) clean.
 13. **M7** — Smoke security negatives through CloudFront (`SMOKE_ALB_DNS`, `SMOKE_API_KEY_2`), then `SMOKE_WAF_BURST=true` → 429 with `Retry-After`.
+14. **M8** — 👤 Push to GitHub, fix `CODEOWNERS`; configure variables, environments (prod reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
+15. **M8** — Merge → `deploy`: dev push (verified digests), apply, smoke green; prod job waits for approval.
