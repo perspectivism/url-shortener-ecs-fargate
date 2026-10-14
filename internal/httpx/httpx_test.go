@@ -260,9 +260,11 @@ func TestServeAndHealthcheck(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, srv, ln, time.Second) }()
+	go func() { done <- Serve(ctx, srv, ln, 10*time.Second) }()
 
-	client := &http.Client{Timeout: time.Second}
+	// No keep-alives: a pooled or speculatively dialed connection would make
+	// Shutdown wait (up to 5 s for connections that never sent a request).
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 	if code := Healthcheck(context.Background(), ln.Addr().String(), client); code != 0 {
 		t.Fatalf("healthcheck = %d", code)
 	}

@@ -35,7 +35,20 @@ import (
 	"github.com/shortener/url-shortener-ecs-fargate/internal/contract"
 )
 
-const sqidsAlphabet = "O7mH0bSxUPJnNZefjW25TzIALs3iX1kcRdMa8QD9hgKY4rEqlVyv6wGFoutBpC"
+// runAlphabet returns a freshly shuffled Sqids alphabet. Each run creates new
+// tables (the ID counter restarts at 0), so a fixed alphabet would regenerate
+// the previous run's codes and collide with its keys in the shared local
+// Valkey (l:{code}, hll:{code}:date).
+func runAlphabet() string {
+	a := []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	for i := len(a) - 1; i > 0; i-- {
+		var b [1]byte
+		_, _ = rand.Read(b[:])
+		j := int(b[0]) % (i + 1)
+		a[i], a[j] = a[j], a[i]
+	}
+	return string(a)
+}
 
 var env *testEnv
 
@@ -158,7 +171,7 @@ func setup() error {
 		"CACHE_TLS":                 "false",
 		"CLIENT_IP_SOURCE":          "remote_addr",
 		"VISITOR_HASH_SALT":         "integration-test-salt-0123456789abcdef",
-		"SQIDS_ALPHABET":            sqidsAlphabet,
+		"SQIDS_ALPHABET":            runAlphabet(),
 		"SCANNER":                   "fake",
 		"METRICS_FLUSH_INTERVAL":    "1s",
 		"SHUTDOWN_TIMEOUT":          "10s",
@@ -194,7 +207,8 @@ func setup() error {
 		"throttled": "links:read,links:write",
 		"bulk":      "links:read,links:write",
 	} {
-		owner := strings.TrimSuffix(name, "-ro")
+		// Owners are run-scoped so rate-limit and idempotency keys never overlap between runs.
+		owner := env.runID + "-" + strings.TrimSuffix(name, "-ro")
 		out, err := env.ctl("apikey", "create", "--owner", owner, "--scopes", scopes, "--name", name)
 		if err != nil {
 			return fmt.Errorf("apikey create: %w\n%s", err, out)
