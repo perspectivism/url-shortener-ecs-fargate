@@ -19,7 +19,7 @@ func TestFixedWindow(t *testing.T) {
 	mr := miniredis.RunT(t)
 	now := time.Date(2026, 10, 14, 12, 0, 50, 0, time.UTC)
 	m := &linkstest.Counter{}
-	l := New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), func() time.Time { return now }, m, slog.New(slog.DiscardHandler))
+	l := New(redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1}), func() time.Time { return now }, m, slog.New(slog.DiscardHandler))
 
 	for i := range 3 {
 		d := l.Allow(ctx, "alice", "write", 3, time.Minute)
@@ -60,7 +60,7 @@ func TestFixedWindow(t *testing.T) {
 func TestFailOpen(t *testing.T) {
 	mr := miniredis.RunT(t)
 	m := &linkstest.Counter{}
-	l := New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), time.Now, m, slog.New(slog.DiscardHandler))
+	l := New(redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1}), time.Now, m, slog.New(slog.DiscardHandler))
 	mr.Close()
 	d := l.Allow(context.Background(), "alice", "write", 1, time.Minute)
 	if !d.Allowed || m.Get(telemetry.CacheErrors) != 1 {

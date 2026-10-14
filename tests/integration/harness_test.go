@@ -52,11 +52,13 @@ type testEnv struct {
 	queueURL string
 	dlqURL   string
 
-	redirect *service
-	api      *service // general-purpose API instance
-	apiLimit *service // low write rate limit (429 test)
-	apiB     *service // two instances sharing the ID counter (KGS test)
-	apiC     *service
+	redirect  *service
+	api       *service // general-purpose API instance
+	apiLimit  *service // low write rate limit (429 test)
+	apiB      *service // two instances sharing the ID counter (KGS test)
+	apiC      *service
+	apiNoScan *service // SCANNER=noop: links stay scan_status=pending (nightly rescan test)
+	worker    *service
 
 	keys map[string]string // name -> plaintext API key
 
@@ -199,6 +201,12 @@ func setup() error {
 		return err
 	}
 	if env.apiC, err = env.start("api-c", "api", "", kgs); err != nil {
+		return err
+	}
+	if env.apiNoScan, err = env.start("api-noscan", "api", "", map[string]string{"SCANNER": "noop", "RATE_LIMIT_WRITE_PER_MIN": "100000"}); err != nil {
+		return err
+	}
+	if env.worker, err = env.start("worker", "worker", "", map[string]string{"WORKER_FLUSH_INTERVAL": "2s", "WORKER_WAIT_SECONDS": "1"}); err != nil {
 		return err
 	}
 	return nil

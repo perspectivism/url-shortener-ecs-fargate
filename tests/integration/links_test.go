@@ -11,54 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
-	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
-
-// drainClicks receives and deletes every message currently on the click queue
-// and returns the decoded events (used only before the worker exists, and by
-// tests that need to inspect raw events).
-func drainClicks(t *testing.T, wait time.Duration) []map[string]any {
-	t.Helper()
-	ctx := context.Background()
-	time.Sleep(wait) // allow the producer's 1 s flush to happen
-	var out []map[string]any
-	for empty := 0; empty < 2; {
-		resp, err := env.sqs.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl: aws.String(env.queueURL), MaxNumberOfMessages: 10, WaitTimeSeconds: 1,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.Messages) == 0 {
-			empty++
-			continue
-		}
-		var entries []sqstypes.DeleteMessageBatchRequestEntry
-		for i, m := range resp.Messages {
-			var ev map[string]any
-			_ = json.Unmarshal([]byte(aws.ToString(m.Body)), &ev)
-			out = append(out, ev)
-			entries = append(entries, sqstypes.DeleteMessageBatchRequestEntry{Id: aws.String(fmt.Sprint(i)), ReceiptHandle: m.ReceiptHandle})
-		}
-		if _, err := env.sqs.DeleteMessageBatch(ctx, &sqs.DeleteMessageBatchInput{QueueUrl: aws.String(env.queueURL), Entries: entries}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return out
-}
-
-func eventsFor(evs []map[string]any, code string) int {
-	n := 0
-	for _, e := range evs {
-		if e["code"] == code {
-			n++
-		}
-	}
-	return n
-}
 
 func TestCreateRedirectHeadersAndHead(t *testing.T) {
 	link := createLink(t, "alice", `{"url":"https://example.com/landing?utm=1"}`)
@@ -87,22 +40,19 @@ func TestCreateRedirectHeadersAndHead(t *testing.T) {
 	head := call(t, http.MethodHead, env.redirect.url+"/"+code, "", "", nil)
 	expectStatus(t, head, http.StatusFound, "")
 
-	evs := drainClicks(t, 1500*time.Millisecond)
-	if n := eventsFor(evs, code); n != 1 {
-		t.Fatalf("events for %s = %d, want exactly 1 (GET yes, HEAD no)", code, n)
+	// GET produced exactly one click; HEAD produced none.
+	waitStats(t, "alice", code, 1, 0)
+	evs := waitS3Events(t, code, 1)
+	e := evs[0]
+	if e.ReferrerHost != "news.ycombinator.com" || e.V != 1 || len(e.Visitor) != 64 {
+		t.Fatalf("event = %+v", e)
 	}
-	for _, e := range evs {
-		if e["code"] != code {
-			continue
-		}
-		if e["referrer_host"] != "news.ycombinator.com" || e["v"] != float64(1) || len(str(e, "visitor")) != 64 {
-			t.Fatalf("event = %v", e)
-		}
-		raw, _ := json.Marshal(e)
-		if strings.Contains(string(raw), "127.0.0.1") {
-			t.Fatal("raw IP must never appear in click events")
-		}
+	raw, _ := json.Marshal(e)
+	if strings.Contains(string(raw), "127.0.0.1") {
+		t.Fatal("raw IP must never appear in click events")
 	}
+	time.Sleep(2 * time.Second) // give a late (wrong) HEAD event time to show up
+	waitStats(t, "alice", code, 1, 0)
 }
 
 func TestNotFoundAndNegativeCache(t *testing.T) {

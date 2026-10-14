@@ -48,6 +48,7 @@ type IdempotencyStore interface {
 // Deps wires a Server.
 type Deps struct {
 	Links       LinkService
+	Stats       StatsService
 	Auth        Authenticator
 	Limiter     Limiter
 	Idempotency IdempotencyStore
@@ -80,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	s.route(mux, "GET /api/v1/links/{code}", auth.ScopeLinksRead, bucketRead, s.getLink)
 	s.route(mux, "PATCH /api/v1/links/{code}", auth.ScopeLinksWrite, bucketWrite, s.updateLink)
 	s.route(mux, "DELETE /api/v1/links/{code}", auth.ScopeLinksWrite, bucketWrite, s.deleteLink)
+	s.route(mux, "GET /api/v1/links/{code}/stats", auth.ScopeLinksRead, bucketRead, s.linkStats)
 	s.route(mux, "POST /api/v1/admin/links/{code}/disable", auth.ScopeAdmin, bucketWrite, s.disableLink)
 	s.route(mux, "POST /api/v1/admin/links/{code}/enable", auth.ScopeAdmin, bucketWrite, s.enableLink)
 

@@ -31,7 +31,6 @@ type Common struct {
 	LogLevel         slog.Level
 	HTTPAddr         string
 	AWSRegion        string
-	LinksTable       string
 	MetricsNamespace string
 	MetricsInterval  time.Duration
 	ShutdownTimeout  time.Duration
@@ -57,7 +56,6 @@ func readCommon(r *Reader, service string) Common {
 		Env:             r.OneOf("APP_ENV", "", EnvLocal, EnvTest, EnvDev, EnvProd),
 		HTTPAddr:        r.String("HTTP_ADDR", ":8080"),
 		AWSRegion:       r.String("AWS_REGION", "us-east-1"),
-		LinksTable:      r.Required("LINKS_TABLE"),
 		MetricsInterval: r.Duration("METRICS_FLUSH_INTERVAL", 10*time.Second),
 		ShutdownTimeout: r.Duration("SHUTDOWN_TIMEOUT", 20*time.Second),
 	}
@@ -103,6 +101,7 @@ func readCache(r *Reader, env, region string) Cache {
 // Redirect configures the redirect service.
 type Redirect struct {
 	Common
+	LinksTable         string
 	Cache              Cache
 	ClickQueueURL      string
 	VisitorSalt        Secret
@@ -122,6 +121,7 @@ const (
 func LoadRedirect(lookup LookupFunc) (Redirect, error) {
 	r := NewReader(lookup)
 	c := Redirect{Common: readCommon(r, "redirect")}
+	c.LinksTable = r.Required("LINKS_TABLE")
 	c.Cache = readCache(r, c.Env, c.AWSRegion)
 	c.ClickQueueURL = r.Required("CLICK_QUEUE_URL")
 	c.VisitorSalt = r.Secret("VISITOR_HASH_SALT", true)
@@ -148,6 +148,7 @@ const (
 // API configures the API service.
 type API struct {
 	Common
+	LinksTable           string
 	Cache                Cache
 	AnalyticsTable       string
 	BaseURL              *url.URL
@@ -166,6 +167,7 @@ type API struct {
 func LoadAPI(lookup LookupFunc) (API, error) {
 	r := NewReader(lookup)
 	c := API{Common: readCommon(r, "api")}
+	c.LinksTable = r.Required("LINKS_TABLE")
 	c.Cache = readCache(r, c.Env, c.AWSRegion)
 	c.AnalyticsTable = r.Required("ANALYTICS_TABLE")
 	c.BaseURL = parseBaseURL(r, "BASE_URL")
@@ -228,4 +230,70 @@ func ValidateAlphabet(a string) error {
 		seen[ch] = true
 	}
 	return nil
+}
+
+// Worker configures the click-event consumer.
+type Worker struct {
+	Common
+	Cache          Cache
+	AnalyticsTable string
+	ClickQueueURL  string
+	EventsBucket   string
+	FlushInterval  time.Duration
+	MaxBatchBytes  int
+	Concurrency    int
+	WaitSeconds    int32
+}
+
+// LoadWorker parses and validates the worker configuration.
+func LoadWorker(lookup LookupFunc) (Worker, error) {
+	r := NewReader(lookup)
+	c := Worker{Common: readCommon(r, "worker")}
+	c.Cache = readCache(r, c.Env, c.AWSRegion)
+	c.AnalyticsTable = r.Required("ANALYTICS_TABLE")
+	c.ClickQueueURL = r.Required("CLICK_QUEUE_URL")
+	c.EventsBucket = r.Required("EVENTS_BUCKET")
+	// The flush interval plus the long-poll wait must stay well under the
+	// queue's 120 s visibility timeout, or messages are redelivered mid-batch.
+	c.FlushInterval = r.Duration("WORKER_FLUSH_INTERVAL", 60*time.Second)
+	if c.FlushInterval > 90*time.Second {
+		r.Problemf("WORKER_FLUSH_INTERVAL must be at most 90s (queue visibility timeout is 120s)")
+	}
+	c.MaxBatchBytes = r.Int("WORKER_MAX_BATCH_BYTES", 5<<20, 1<<10, 64<<20)
+	c.Concurrency = r.Int("WORKER_CONCURRENCY", 10, 1, 100)
+	c.WaitSeconds = r.Int32("WORKER_WAIT_SECONDS", 20, 0, 20)
+	return c, r.Err()
+}
+
+// Nightly configures the nightly job.
+type Nightly struct {
+	Common
+	Cache                Cache
+	LinksTable           string
+	AnalyticsTable       string
+	Scanner              string
+	SafeBrowsingKey      Secret
+	SafeBrowsingEndpoint string
+	Date                 string // yyyy-mm-dd to process; empty = yesterday (UTC)
+	RescanAge            time.Duration
+	ScanSegments         int32
+}
+
+// LoadNightly parses and validates the nightly job configuration.
+func LoadNightly(lookup LookupFunc) (Nightly, error) {
+	r := NewReader(lookup)
+	c := Nightly{Common: readCommon(r, "nightly")}
+	c.Cache = readCache(r, c.Env, c.AWSRegion)
+	c.LinksTable = r.Required("LINKS_TABLE")
+	c.AnalyticsTable = r.Required("ANALYTICS_TABLE")
+	c.Scanner, c.SafeBrowsingKey, c.SafeBrowsingEndpoint = readScanner(r)
+	c.Date = r.String("NIGHTLY_DATE", "")
+	if c.Date != "" {
+		if _, err := time.Parse(time.DateOnly, c.Date); err != nil {
+			r.Problemf("NIGHTLY_DATE must be a date (YYYY-MM-DD)")
+		}
+	}
+	c.RescanAge = r.Duration("RESCAN_AGE", 7*24*time.Hour)
+	c.ScanSegments = r.Int32("SCAN_SEGMENTS", 4, 1, 64)
+	return c, r.Err()
 }

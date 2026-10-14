@@ -349,3 +349,37 @@ func (s *Service) mutate(ctx context.Context, code string, fn func(*Link) error)
 	}
 	return Link{}, fmt.Errorf("update link: %w after %d attempts", ErrConflict, attempts)
 }
+
+// ApplyScan records a rescan verdict (nightly job). An unsafe destination
+// disables an active link with reason unsafe_url; the cache entry is deleted
+// by mutate. Deleted links are ErrNotFound. Returns whether the link was
+// disabled by this call (false on re-runs: already disabled).
+func (s *Service) ApplyScan(ctx context.Context, code string, unsafe bool) (bool, error) {
+	now := s.now()
+	disabled := false
+	_, err := s.mutate(ctx, code, func(l *Link) error {
+		if l.Status == StatusDeleted {
+			return ErrNotFound
+		}
+		disabled = false
+		l.LastScannedAt = &now
+		if !unsafe {
+			l.ScanStatus = ScanClean
+			return nil
+		}
+		l.ScanStatus = ScanFlagged
+		if l.Status == StatusActive {
+			l.Status = StatusDisabled
+			l.DisabledReason = DisabledReasonUnsafe
+			disabled = true
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	if disabled {
+		s.d.Metrics.Count(telemetry.LinksDisabled, 1)
+	}
+	return disabled, nil
+}

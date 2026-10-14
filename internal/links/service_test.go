@@ -296,3 +296,39 @@ func TestValidationErrorFormatting(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestApplyScan(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, scanner.Noop{}, nil)
+	l, _ := e.svc.Create(ctx, "alice", links.CreateInput{URL: "https://example.com"})
+	*e.now = t0.Add(time.Hour)
+	if disabled, err := e.svc.ApplyScan(ctx, l.Code, false); err != nil || disabled {
+		t.Fatal(err)
+	}
+	got, _ := e.repo.GetLink(ctx, l.Code)
+	if got.ScanStatus != links.ScanClean || !got.LastScannedAt.Equal(t0.Add(time.Hour)) {
+		t.Fatalf("clean: %+v", got)
+	}
+	deletes := e.cache.Deletes
+	if disabled, err := e.svc.ApplyScan(ctx, l.Code, true); err != nil || !disabled {
+		t.Fatalf("flag: %v %v", disabled, err)
+	}
+	got, _ = e.repo.GetLink(ctx, l.Code)
+	if got.Status != links.StatusDisabled || got.DisabledReason != links.DisabledReasonUnsafe || got.ScanStatus != links.ScanFlagged || e.cache.Deletes != deletes+1 {
+		t.Fatalf("flagged: %+v", got)
+	}
+	if e.metrics.Get(telemetry.LinksDisabled) != 1 {
+		t.Fatal("LinksDisabled")
+	}
+	// Re-applying to an already-disabled link does not "disable" again.
+	if disabled, err := e.svc.ApplyScan(ctx, l.Code, true); err != nil || disabled {
+		t.Fatalf("re-flag: %v %v", disabled, err)
+	}
+	_ = e.svc.Delete(ctx, "alice", l.Code)
+	if _, err := e.svc.ApplyScan(ctx, l.Code, true); !errors.Is(err, links.ErrNotFound) {
+		t.Fatal("deleted links are not found")
+	}
+	if _, err := e.svc.ApplyScan(ctx, "missing", true); !errors.Is(err, links.ErrNotFound) {
+		t.Fatal("missing")
+	}
+}

@@ -242,6 +242,56 @@ paths:
         "503":
           $ref: "#/components/responses/Unavailable"
 
+  /api/v1/links/{code}/stats:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    get:
+      tags: [links]
+      operationId: getLinkStats
+      summary: Click statistics for one of the caller's links
+      description: |
+        Daily series (zero-filled) and top-10 referrer hosts, countries, device
+        classes and browsers over [from, to] (UTC dates, inclusive, at most 90
+        days; default the last 7 days). `clicks` counts human clicks; bots are
+        counted separately in `bot_clicks` and excluded from uniques and
+        dimensions. Uniques for recent days come from the live HyperLogLog
+        until the nightly job persists them. Counters are eventually consistent
+        (typically visible within seconds; SPEC N4: under 2 minutes).
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkStats"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
   /api/v1/admin/links/{code}/disable:
     parameters:
       - $ref: "#/components/parameters/Code"
@@ -592,6 +642,77 @@ components:
             - type: string
               format: date-time
             - type: "null"
+
+    StatsEntry:
+      type: object
+      additionalProperties: false
+      required: [value, clicks]
+      properties:
+        value:
+          type: string
+          maxLength: 64
+        clicks:
+          type: integer
+          minimum: 0
+
+    StatsTopList:
+      type: array
+      maxItems: 10
+      items:
+        $ref: "#/components/schemas/StatsEntry"
+
+    LinkStats:
+      type: object
+      additionalProperties: false
+      required: [code, from, to, total_clicks, total_bot_clicks, daily, top]
+      properties:
+        code:
+          type: string
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        total_clicks:
+          type: integer
+          minimum: 0
+        total_bot_clicks:
+          type: integer
+          minimum: 0
+        daily:
+          type: array
+          maxItems: 90
+          items:
+            type: object
+            additionalProperties: false
+            required: [date, clicks, bot_clicks, uniques]
+            properties:
+              date:
+                type: string
+                format: date
+              clicks:
+                type: integer
+                minimum: 0
+              bot_clicks:
+                type: integer
+                minimum: 0
+              uniques:
+                type: integer
+                minimum: 0
+        top:
+          type: object
+          additionalProperties: false
+          required: [referrers, countries, devices, browsers]
+          properties:
+            referrers:
+              $ref: "#/components/schemas/StatsTopList"
+            countries:
+              $ref: "#/components/schemas/StatsTopList"
+            devices:
+              $ref: "#/components/schemas/StatsTopList"
+            browsers:
+              $ref: "#/components/schemas/StatsTopList"
 
     DisableRequest:
       type: object

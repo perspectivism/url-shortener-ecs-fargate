@@ -141,7 +141,7 @@ func redisOptionsForTest(t *testing.T, addr string, token TokenFunc) *redis.Clie
 func TestLinkCache(t *testing.T) {
 	ctx := context.Background()
 	mr := miniredis.RunT(t)
-	c := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	c := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
 	lc := NewLinkCache(c)
 
 	if _, ok, err := lc.GetLink(ctx, "abc"); ok || err != nil {
@@ -189,7 +189,7 @@ func TestLinkCache(t *testing.T) {
 func TestIdempotency(t *testing.T) {
 	ctx := context.Background()
 	mr := miniredis.RunT(t)
-	idem := NewIdempotency(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	idem := NewIdempotency(redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1}))
 	if _, ok, err := idem.Get(ctx, "alice", "k1"); ok || err != nil {
 		t.Fatal("expected miss")
 	}

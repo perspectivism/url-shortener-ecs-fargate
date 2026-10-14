@@ -198,3 +198,41 @@ func assertErr(t *testing.T, err error, want []string) {
 		}
 	}
 }
+
+var workerBase = map[string]string{
+	"APP_ENV":         "local",
+	"CACHE_ADDR":      "localhost:6379",
+	"CACHE_AUTH":      "none",
+	"CACHE_TLS":       "false",
+	"ANALYTICS_TABLE": "analytics",
+	"CLICK_QUEUE_URL": "http://localhost:9324/000000000000/clicks",
+	"EVENTS_BUCKET":   "events",
+}
+
+func TestLoadWorker(t *testing.T) {
+	c, err := LoadWorker(env(workerBase))
+	if err != nil || c.FlushInterval != time.Minute || c.MaxBatchBytes != 5<<20 || c.Concurrency != 10 || c.WaitSeconds != 20 || c.Service != "worker" {
+		t.Fatalf("worker: %+v %v", c, err)
+	}
+	_, err = LoadWorker(env(merge(workerBase, map[string]string{"WORKER_FLUSH_INTERVAL": "2m", "EVENTS_BUCKET": "<unset>", "WORKER_WAIT_SECONDS": "x"})))
+	assertErr(t, err, []string{"WORKER_FLUSH_INTERVAL must be at most 90s", "EVENTS_BUCKET is required", "WORKER_WAIT_SECONDS must be an integer"})
+	_, err = LoadWorker(env(merge(workerBase, map[string]string{"WORKER_WAIT_SECONDS": "21"})))
+	assertErr(t, err, []string{"WORKER_WAIT_SECONDS must be between 0 and 20"})
+	if c, _ := LoadWorker(env(merge(workerBase, map[string]string{"WORKER_WAIT_SECONDS": "1"}))); c.WaitSeconds != 1 {
+		t.Fatal("WORKER_WAIT_SECONDS override")
+	}
+}
+
+func TestLoadNightly(t *testing.T) {
+	base := merge(workerBase, map[string]string{"LINKS_TABLE": "links", "SCANNER": "fake"})
+	c, err := LoadNightly(env(base))
+	if err != nil || c.Date != "" || c.RescanAge != 7*24*time.Hour || c.ScanSegments != 4 || c.Scanner != "fake" {
+		t.Fatalf("nightly: %+v %v", c, err)
+	}
+	c, err = LoadNightly(env(merge(base, map[string]string{"NIGHTLY_DATE": "2026-10-13"})))
+	if err != nil || c.Date != "2026-10-13" {
+		t.Fatalf("date: %v", err)
+	}
+	_, err = LoadNightly(env(merge(base, map[string]string{"NIGHTLY_DATE": "yesterday", "SCANNER": "safebrowsing"})))
+	assertErr(t, err, []string{"NIGHTLY_DATE must be a date", "SAFE_BROWSING_API_KEY is required"})
+}

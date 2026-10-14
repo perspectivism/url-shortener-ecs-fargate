@@ -15,6 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.4
 	github.com/aws/smithy-go v1.28.5
 	github.com/google/uuid v1.6.0
+	github.com/mileusna/useragent v1.3.5
 	github.com/pb33f/libopenapi v0.41.6
 	github.com/pb33f/libopenapi-validator v0.16.1
 	github.com/redis/go-redis/v9 v9.23.0

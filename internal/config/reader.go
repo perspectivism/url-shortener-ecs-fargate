@@ -105,6 +105,24 @@ func (r *Reader) Int(key string, def, minV, maxV int) int {
 	return n
 }
 
+// Int32 returns key as an int32 within [minV, maxV], or def when unset.
+func (r *Reader) Int32(key string, def, minV, maxV int32) int32 {
+	v, ok := r.raw(key)
+	if !ok {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		r.Problemf("%s must be an integer", key)
+		return def
+	}
+	if int32(n) < minV || int32(n) > maxV {
+		r.Problemf("%s must be between %d and %d", key, minV, maxV)
+		return def
+	}
+	return int32(n)
+}
+
 // Duration returns key parsed by time.ParseDuration (must be > 0), or def.
 func (r *Reader) Duration(key string, def time.Duration) time.Duration {
 	v, ok := r.raw(key)

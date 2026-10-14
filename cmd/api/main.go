@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
+	"github.com/shortener/url-shortener-ecs-fargate/internal/analytics"
 	"github.com/shortener/url-shortener-ecs-fargate/internal/api"
 	"github.com/shortener/url-shortener-ecs-fargate/internal/auth"
 	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
@@ -68,7 +69,8 @@ func run(args []string) int {
 	}
 	defer rc.Close()
 
-	repo := store.NewLinks(dynamodb.NewFromConfig(awsCfg), cfg.LinksTable, 200*time.Millisecond)
+	ddb := dynamodb.NewFromConfig(awsCfg)
+	repo := store.NewLinks(ddb, cfg.LinksTable, 200*time.Millisecond)
 	gen, err := keygen.New(repo, cfg.KeyBlockSize, cfg.SqidsAlphabet, links.IsReserved, tel.Metrics)
 	if err != nil {
 		log.Error("startup failed", "err", err)
@@ -80,6 +82,7 @@ func run(args []string) int {
 	})
 	server := api.New(api.Deps{
 		Links:       svc,
+		Stats:       analytics.NewService(store.NewAnalytics(ddb, cfg.AnalyticsTable, 500*time.Millisecond), cache.NewUniques(rc), time.Now, tel.Metrics, log),
 		Auth:        auth.NewAuthenticator(repo, cfg.Env, cfg.AuthCacheTTL, time.Now, log),
 		Limiter:     ratelimit.New(rc, time.Now, tel.Metrics, log),
 		Idempotency: cache.NewIdempotency(rc),

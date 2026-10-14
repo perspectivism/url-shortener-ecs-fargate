@@ -448,3 +448,54 @@ func (s *Links) TouchAPIKey(ctx context.Context, hash, day string) error {
 	}
 	return nil
 }
+
+// ScanRescan implements access pattern 8: a parallel Scan segment of the links
+// table for active links whose destination needs a (re)scan — scan_status
+// pending, or last scanned before cutoff. fn is called once per page. At
+// interview scale this becomes a GSI on next-scan date (SPEC §5.3).
+func (s *Links) ScanRescan(ctx context.Context, segment, totalSegments int32, cutoff time.Time, fn func([]links.Link) error) error {
+	var start map[string]types.AttributeValue
+	for {
+		sctx, cancel := s.ctx(ctx)
+		out, err := s.db.Scan(sctx, &dynamodb.ScanInput{
+			TableName:     &s.table,
+			Segment:       aws.Int32(segment),
+			TotalSegments: aws.Int32(totalSegments),
+			FilterExpression: aws.String("begins_with(pk, :lp) AND #st = :active AND " +
+				"(scan_status = :pending OR attribute_not_exists(last_scanned_at) OR last_scanned_at < :cutoff)"),
+			ExpressionAttributeNames: map[string]string{"#st": "status"},
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":lp":      &types.AttributeValueMemberS{Value: linkPrefix},
+				":active":  &types.AttributeValueMemberS{Value: string(links.StatusActive)},
+				":pending": &types.AttributeValueMemberS{Value: string(links.ScanPending)},
+				":cutoff":  &types.AttributeValueMemberS{Value: fmtTime(cutoff)},
+			},
+			ExclusiveStartKey: start,
+		})
+		cancel()
+		if err != nil {
+			return fmt.Errorf("scan links: %w", err)
+		}
+		var items []linkItem
+		if err := attributevalue.UnmarshalListOfMaps(out.Items, &items); err != nil {
+			return fmt.Errorf("decode links: %w", err)
+		}
+		page := make([]links.Link, 0, len(items))
+		for _, it := range items {
+			l, err := fromItem(it)
+			if err != nil {
+				return fmt.Errorf("decode links: %w", err)
+			}
+			page = append(page, l)
+		}
+		if len(page) > 0 {
+			if err := fn(page); err != nil {
+				return err
+			}
+		}
+		if len(out.LastEvaluatedKey) == 0 {
+			return nil
+		}
+		start = out.LastEvaluatedKey
+	}
+}

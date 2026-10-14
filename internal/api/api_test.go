@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shortener/url-shortener-ecs-fargate/internal/analytics"
 	"github.com/shortener/url-shortener-ecs-fargate/internal/auth"
 	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
 	"github.com/shortener/url-shortener-ecs-fargate/internal/contract"
@@ -129,7 +130,7 @@ func newHarness(t *testing.T, svc LinkService, a Authenticator) *harness {
 	}
 	base, _ := url.Parse("https://sho.rt")
 	h.h = New(Deps{
-		Links: svc, Auth: a, Limiter: fakeLimiter{}, Idempotency: h.idem, Metrics: &linkstest.Counter{},
+		Links: svc, Stats: &fakeStats{}, Auth: a, Limiter: fakeLimiter{}, Idempotency: h.idem, Metrics: &linkstest.Counter{},
 		Logger: slog.New(slog.DiscardHandler), Now: clock, BaseURL: base, WriteLimit: 60, ReadLimit: 300,
 	}).Handler()
 	return h
@@ -407,3 +408,50 @@ func TestRoutingFallbacks(t *testing.T) {
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
+
+type fakeStats struct{ err error }
+
+func (f *fakeStats) Report(_ context.Context, code string, from, to time.Time) (analytics.Report, error) {
+	if f.err != nil {
+		return analytics.Report{}, f.err
+	}
+	if to.Sub(from) > 89*24*time.Hour || from.After(to) {
+		return analytics.Report{}, analytics.ErrInvalidRange
+	}
+	rep := analytics.Report{Code: code, From: from.Format(time.DateOnly), To: to.Format(time.DateOnly), TotalClicks: 3, TotalBotClicks: 1,
+		Daily: []analytics.Day{{Date: to.Format(time.DateOnly), Clicks: 3, BotClicks: 1, Uniques: 2}},
+		Top:   analytics.Top{Referrers: []analytics.Entry{{Value: "t.co", Clicks: 3}}, Countries: []analytics.Entry{}, Devices: []analytics.Entry{}, Browsers: []analytics.Entry{}}}
+	return rep, nil
+}
+
+func TestStatsContract(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	h.expect(call{method: "POST", path: "/api/v1/links", key: "alice-rw", body: `{"url":"https://example.com"}`}, true, 201, "")
+	b := h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats", key: "alice-r"}, true, 200, "")
+	if b["from"] != "2026-10-08" || b["to"] != "2026-10-14" || b["total_clicks"] != float64(3) {
+		t.Fatalf("default range: %v", b)
+	}
+	if b = h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats?to=2026-10-10", key: "alice-r"}, true, 200, ""); b["from"] != "2026-10-04" {
+		t.Fatalf("to only: %v", b)
+	}
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats?from=2026-09-01&to=2026-10-14", key: "alice-r"}, true, 200, "")
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats?from=2026-01-01&to=2026-10-14", key: "alice-r"}, true, 400, "invalid_request")
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats?from=2026-10-14&to=2026-10-01", key: "alice-r"}, true, 400, "invalid_request")
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats?from=yesterday", key: "alice-r"}, false, 400, "invalid_request")
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats?to=x", key: "alice-r"}, false, 400, "invalid_request")
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats", key: "bob-rw"}, true, 404, "not_found")
+	h.expect(call{method: "GET", path: "/api/v1/links/missing/stats", key: "alice-r"}, true, 404, "not_found")
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats", key: "admin"}, true, 403, "forbidden")
+}
+
+func TestStatsBackendError(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	h.expect(call{method: "POST", path: "/api/v1/links", key: "alice-rw", body: `{"url":"https://example.com"}`}, true, 201, "")
+	base, _ := url.Parse("https://sho.rt")
+	h.h = New(Deps{
+		Links: links.NewService(links.ServiceDeps{Repo: h.repo, Cache: linkstest.NewCache(), Scanner: scanner.Fake{}, Codes: &linkstest.SeqCodes{}}),
+		Stats: &fakeStats{err: errors.New("dynamodb down")}, Auth: fakeAuth{}, Limiter: fakeLimiter{}, Idempotency: h.idem,
+		Metrics: &linkstest.Counter{}, Logger: slog.New(slog.DiscardHandler), Now: func() time.Time { return t0 }, BaseURL: base, WriteLimit: 60, ReadLimit: 300,
+	}).Handler()
+	h.expect(call{method: "GET", path: "/api/v1/links/code000001/stats", key: "alice-r"}, true, 500, "internal")
+}
