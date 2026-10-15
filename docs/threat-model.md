@@ -124,7 +124,7 @@ flowchart LR
 
 - **Internet → Edge:** TLS, WAF managed rules and per-IP rate limits.
 - **Edge → VPC:** only CloudFront can reach the internal ALB, through the VPC
-  origin and the origin-facing prefix list (ADR-0012).
+  origin and the origin-facing prefix list ([ADR-0012](adr/0012-cloudfront-vpc-origin-internal-alb-waf.md)).
 - **VPC → AWS services:** per-service task roles, VPC endpoints with
   data-perimeter policies, and KMS.
 - **VPC → third party:** Safe Browsing over NAT, only when scanning is enabled.
@@ -208,6 +208,7 @@ L = likelihood, I = impact (H/M/L).
 | C7 | **Vulnerable or tampered base image** | T/E | M | H | Base images pinned by digest (distroless static nonroot); Trivy scans of images and build history; ECR scan on push and immutable SHA tags; the exact digest promoted from dev to prod, never rebuilt | Mitigated |
 | C8 | **Secrets committed to git or baked into images** | I | M | H | gitleaks pre-commit and full-history scan with a custom API-key rule; self-tests prove detection; Trivy secret scan of images; `.env` gitignored, `.env.example` fake values only | Mitigated |
 | C9 | **Unreviewed infrastructure change** | T/R | L | H | `terraform plan -out` and apply of exactly that plan after approval; plan invariants and static scanners (checkov, Trivy, tflint) run in CI on every PR ([`ci.yml`](../.github/workflows/ci.yml)); the dev plan is posted to the PR; prod applies need environment reviewers | Mitigated |
+| C10 | **PR code runs with AWS credentials during `terraform plan`** (a data source or provider in a same-repository PR can execute code) | E/I | L | M | Only same-repository PRs get the plan role (fork PRs receive no OIDC token); opening such a PR needs write access to the repo; the role is read-only (`ReadOnlyAccess` minus application data: no item reads, queue receives, secret values, log reads or object reads outside the state bucket) and bounded by the permissions boundary; apply roles need a merge to protected `main` or prod reviewers ([`ci.yml`](../.github/workflows/ci.yml), [`bootstrap`](../infra/bootstrap/main.tf)) | Accepted (anyone with write access is trusted; the standard trade-off for PR plans) |
 
 ## 10. Coverage of SPEC §17.3
 
@@ -222,7 +223,7 @@ L = likelihood, I = impact (H/M/L).
 | SSRF (we never fetch destination URLs) | A10 |
 | Viewer IP/country header spoofing | R7, I1 |
 | Supply chain (pinned actions, image scanning, govulncheck) | C5, C6, C7 |
-| CI role abuse (OIDC `sub` conditions, permissions boundary) | C1, C2, C3 |
+| CI role abuse (OIDC `sub` conditions, permissions boundary) | C1, C2, C3, C10 |
 | Data exfiltration (endpoint policies, KMS) | I3, I5 |
 | Log injection | R9 |
 | Analytics privacy | R8, P5 |
@@ -245,7 +246,7 @@ L = likelihood, I = impact (H/M/L).
 | HTTP on the CloudFront→ALB hop without a custom domain | Traffic runs over the CloudFront VPC origin's private connection inside the AWS network; set `domain_name` for HTTPS end to end (SPEC §11.3). |
 | HTTP between the ALB and tasks | Isolated subnets, SG-to-SG rules only; TLS to every task would need per-task certificates for little benefit at this scale. |
 | Viewer TLS policy fixed by AWS on `*.cloudfront.net` | TLSv1.2_2021 is enforced when the custom domain + ACM certificate is configured. |
-| No ECS Exec | Read-only root filesystems and distroless images rule it out; diagnosis via logs, metrics and `/healthz` (ADR-0003). |
+| No ECS Exec | Read-only root filesystems and distroless images rule it out; diagnosis via logs, metrics and `/healthz` ([ADR-0003](adr/0003-ecs-on-fargate.md)). |
 
 ## 12. Scanner suppressions
 
@@ -264,9 +265,9 @@ inline justification (AGENTS.md §3).
 | checkov CKV2_AWS_5 | `infra/modules/network/main.tf`, `infra/modules/cache/main.tf` (client security groups) | SG attached | Client groups are attached to ECS tasks by the ecs-service module (M5). |
 | checkov CKV_AWS_338 | `infra/modules/network/main.tf` (flow logs) | 1-year log retention | 14 days dev / 90 days prod per SPEC §12.6 cost guardrails. |
 | checkov CKV_AWS_394 | `infra/modules/network/main.tf` (AZ data source) | AZ result pinning | Subnets are keyed by AZ ID and use the first `az_count` AZs; a new AZ never moves subnets. |
-| checkov CKV2_AWS_57 | `infra/modules/secrets/main.tf` | automatic rotation | The Safe Browsing key is Google-issued; rotating the salt resets unique-visitor continuity. Both rotate via runbook procedures (ADR-0014). |
+| checkov CKV2_AWS_57 | `infra/modules/secrets/main.tf` | automatic rotation | The Safe Browsing key is Google-issued; rotating the salt resets unique-visitor continuity. Both rotate via runbook procedures ([ADR-0014](adr/0014-secrets-management.md)). |
 | checkov CKV_AWS_338 | `infra/modules/{ecs-cluster,ecs-service,scheduled-task,edge}/main.tf` (log groups) | 1-year log retention | 14 days dev / 90 days prod per SPEC §12.6. |
-| checkov CKV_AWS_382; Trivy AWS-0104 | `infra/modules/ecs-service/main.tf`, `infra/modules/scheduled-task/main.tf` (`internet_https` egress) | egress to 0.0.0.0/0 | HTTPS-only egress to Google Safe Browsing (no fixed IP range) through NAT; created only for api/nightly when `url_scanning_enabled` (ADR-0013). |
+| checkov CKV_AWS_382; Trivy AWS-0104 | `infra/modules/ecs-service/main.tf`, `infra/modules/scheduled-task/main.tf` (`internet_https` egress) | egress to 0.0.0.0/0 | HTTPS-only egress to Google Safe Browsing (no fixed IP range) through NAT; created only for api/nightly when `url_scanning_enabled` ([ADR-0013](adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md)). |
 | checkov CKV2_AWS_5 | `infra/modules/scheduled-task/main.tf` | SG attached | Attached per run through the EventBridge Scheduler ECS target. |
 | checkov CKV2_AWS_28, CKV2_AWS_20, CKV_AWS_150 | `infra/modules/edge/main.tf` (`aws_lb`) | WAF on ALB; HTTP→HTTPS redirect; deletion protection | The ALB is internal behind CloudFront (WAF and HTTPS redirect at the edge); deletion protection follows `!force_destroy` (on in prod). |
 | checkov CKV_AWS_2, CKV_AWS_103, CKV2_AWS_20; Trivy AWS-0054 | `infra/modules/edge/main.tf` (`aws_lb_listener.http`) | HTTP listener | Internal VPC-origin hop is HTTP without a custom domain (accepted risk below); `domain_name` switches to the HTTPS listener. |

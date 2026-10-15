@@ -32,7 +32,7 @@ records and HyperLogLog unique-visitor counters (SPEC §7).
 Chosen option: **3 — ElastiCache Serverless for Valkey**, engine major
 version 9 (ElastiCache supports Valkey 7.2 → 9.1 as of 2026-10-14; local
 compose uses `valkey/valkey:9.0.6`), TLS required, IAM authentication
-(ADR-0009), CMK encryption, `cache_usage_limits` for storage and ECPU caps.
+([ADR-0009](0009-valkey-iam-authentication.md)), CMK encryption, `cache_usage_limits` for storage and ECPU caps.
 
 | Key | Value | TTL |
 | --- | --- | --- |

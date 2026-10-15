@@ -1,6 +1,6 @@
 # Secrets module
 
-Secret containers only (ADR-0014) — never values. CMK encryption, recovery window 0 (dev) / 30 days (prod), and a resource policy that denies `GetSecretValue` to everyone except the listed reader roles.
+Secret containers only ([ADR-0014](../../../docs/adr/0014-secrets-management.md)) — never values. CMK encryption, recovery window 0 (dev) / 30 days (prod), and a resource policy that denies `GetSecretValue` to everyone except the listed reader roles.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

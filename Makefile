@@ -238,6 +238,8 @@ docs-check: tools-check ## markdownlint, Mermaid render, relative link check
 	@scripts/check-links.sh
 	@python3 -I scripts/check_threat_model.py
 	@python3 -I scripts/check_adrs.py
+	@python3 -I scripts/check_adr_links.py
+	@python3 -I scripts/check_doc_facts.py
 
 .PHONY: check-workflows
 check-workflows: tools-check ## actionlint, zizmor (medium+), every action/image/tool pinned

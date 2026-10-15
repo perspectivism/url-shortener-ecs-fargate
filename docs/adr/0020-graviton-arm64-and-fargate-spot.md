@@ -6,10 +6,10 @@
 
 ## Context
 
-Every service runs on ECS Fargate (ADR-0003). Fargate offers x86_64 and ARM64
+Every service runs on ECS Fargate ([ADR-0003](0003-ecs-on-fargate.md)). Fargate offers x86_64 and ARM64
 (Graviton) and two capacity types: on-demand and Spot (up to ~70 % cheaper,
 interruptible with a two-minute warning). The services are static Go binaries
-(ADR-0002), so the CPU architecture is a build flag, not a porting effort.
+([ADR-0002](0002-go-for-all-services.md)), so the CPU architecture is a build flag, not a porting effort.
 Checked on 2026-10-14: ECS supports Graviton on Fargate Spot since September
 2024 ([announcement](https://aws.amazon.com/about-aws/whats-new/2024/09/amazon-ecs-graviton-based-spot-compute-fargate/)),
 platform version 1.4.0+.
@@ -18,7 +18,7 @@ platform version 1.4.0+.
 
 - Lowest cost per request at equal or better performance
 - Interruptions must not lose data or fail user requests
-- One image per service, built once and promoted dev → prod (ADR-0017)
+- One image per service, built once and promoted dev → prod ([ADR-0017](0017-cicd-github-oidc-rolling-deploys.md))
 - Fast, reproducible builds on x86 developer machines and CI runners
 
 ## Considered Options
@@ -36,7 +36,7 @@ Chosen option: **3 — ARM64 for every task; Fargate Spot where interruption is 
 | --- | --- | --- | --- |
 | `redirect` | Spot | on-demand base 2, scale-out on-demand | User-facing; in prod a Spot reclaim must never shrink capacity below the SLO. Dev has no SLO. |
 | `api` | on-demand | on-demand | Low volume; interruption mid-request would surface as client errors. |
-| `worker` | Spot (on-demand fallback weight) | Spot (on-demand fallback weight) | SQS redelivers anything not deleted; the dedupe marker makes replays harmless (ADR-0010). |
+| `worker` | Spot (on-demand fallback weight) | Spot (on-demand fallback weight) | SQS redelivers anything not deleted; the dedupe marker makes replays harmless ([ADR-0010](0010-async-click-pipeline.md)). |
 | `nightly` | Spot | Spot | Idempotent batch job; a reclaimed run is simply re-run (alarm on failure). |
 
 **Images (`build/Dockerfile`):** the build stage runs on the build host's

@@ -217,7 +217,7 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - 🔍 **Show:** [design §1](docs/design.md#1-requirements-and-scope): functional requirements F1–F9 and non-functional N1–N8.
 - ⚖️ **Trade-off:** analytics plus editable links rule out permanent (301) redirects and edge caching.
 - ❓ **Follow-ups:**
-  - *"Users and a UI?"* Out of scope: API keys per owner (ADR-0015).
+  - *"Users and a UI?"* Out of scope: API keys per owner ([ADR-0015](docs/adr/0015-api-key-authentication.md)).
   - *"Custom domains?"* Future work; the edge supports one domain per environment.
 - 📎 [ADR-0001](docs/adr/0001-record-architecture-decisions.md)
 
@@ -291,10 +291,13 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"When would you use 301?"* Immutable links where analytics don't matter.
   - *"HEAD requests?"* They resolve but are not counted.
-  - *"Users far from us-east-1?"* They pay one backbone round trip (~200 ms
-    from Sydney); TLS ends at the nearest edge. The options, ordered by cost,
-    are short edge caching, edge redirects and multi-region; see
-    [design §6](docs/design.md#6-redirect-path).
+  - *"Users far from us-east-1?"* With a nearby CloudFront edge, TLS ends
+    there and a redirect costs one backbone round trip. This distribution
+    uses `PriceClass_100` (North America and Europe only), so Asia-Pacific
+    users connect to a distant edge: several ~200 ms round trips on a new
+    connection. `PriceClass_All` fixes that cheaply; beyond it come short
+    edge caching, edge redirects and multi-region
+    ([design §6](docs/design.md#6-redirect-path)).
 - 📎 [ADR-0007](docs/adr/0007-302-redirects-and-no-edge-caching.md)
 
 ### 7. Caching
@@ -334,12 +337,12 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"A link goes viral?"* Its counters are written once per transaction (up
     to ~90 clicks), not once per click. That is ~5× cheaper and keeps the item
-    far below DynamoDB's per-item limit (ADR-0024).
+    far below DynamoDB's per-item limit ([ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md)).
   - *"Poison messages?"* They go to the DLQ after 5 receives; the redrive
     runbook works within 3 days.
   - *"Privacy?"* Per-day HMAC visitor IDs; raw IPs are never stored.
   - *"How long is data kept?"* Counters for 13 months (via TTL), including
-    after a link is deleted; raw events 13 months in prod (ADR-0025).
+    after a link is deleted; raw events 13 months in prod ([ADR-0025](docs/adr/0025-analytics-retention-13-months.md)).
 - 📎 [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md), [ADR-0025](docs/adr/0025-analytics-retention-13-months.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
 
 ### 9. Abuse prevention and security
@@ -348,7 +351,7 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   time and nightly, there is an admin kill switch, and WAF rate rules answer
   429. Infrastructure has no public origin, least-privilege roles, endpoint
   policies that block exfiltration, and secrets that never touch git or Terraform state."
-- 🔍 **Show:** [threat model](docs/threat-model.md) (51 STRIDE rows, none
+- 🔍 **Show:** [threat model](docs/threat-model.md) (52 STRIDE rows, none
   open); [design §9](docs/design.md#9-abuse-prevention-and-security).
 - ⚖️ **Trade-off:** WAF may block some legitimate URLs (for example ones with IP
   literals); this is accepted and tuned from the WAF logs.
@@ -371,7 +374,7 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"Deploys?"* Images are built once and the same digests are promoted.
     Rolling deploys use the circuit breaker; prod waits for a reviewer.
-  - *"Why one account?"* Demo simplicity, with cross-environment guardrails (ADR-0019).
+  - *"Why one account?"* Demo simplicity, with cross-environment guardrails ([ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md)).
   - *"What if us-east-1 goes down?"*
     - **Today:** an outage until AWS recovers, with no data lost.
     - **AZ loss and data corruption are covered:** the AZ failover is automatic;
@@ -458,8 +461,8 @@ Valkey's minimum. Levers and the full model are in [docs/cost.md](docs/cost.md).
 
 | Layer | Command | What it proves |
 | --- | --- | --- |
-| Unit | `make test` | 97.7 % coverage of `internal/` (gate 80 %), race detector, OpenAPI contract |
-| Integration | `make test-integration` | 15 end-to-end flows against emulators: dedupe under 500 replays, a hot link with 1,500 clicks each delivered twice (exact counts, batched writes), 10,000 creates with no duplicate codes, rate limits, graceful shutdown |
+| Unit | `make test` | ≈ 98 % coverage of `internal/` (gate 80 %), race detector, OpenAPI contract |
+| Integration | `make test-integration` | 16 end-to-end flows against emulators: dedupe under 500 replays, a hot link with 1,500 clicks each delivered twice (exact counts, batched writes), 10,000 creates with no duplicate codes, rate limits, graceful shutdown |
 | Images | `make images check-images scan-images` | arm64, UID 65532, ~16 MB, 0 fixable HIGH/CRITICAL |
 | Terraform | `make tf-check` | 57 `terraform test` runs; checkov, Trivy, tflint; plan, IAM, metric and suppression invariants |
 | Workflows | `make check-workflows` | actionlint, zizmor, every action pinned to a SHA |

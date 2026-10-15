@@ -41,8 +41,11 @@ resource "aws_budgets_budget" "monthly" {
 }
 
 # Customer-managed tag monitor: one tag key, specific values (AWS limit: 10).
-# Tag monitors can only be created in a management (or standalone) account.
+# Tag monitors can only be created in a management (or standalone) account;
+# set anomaly_monitor_enabled = false in an AWS Organizations member account.
 resource "aws_ce_anomaly_monitor" "this" {
+  count = var.anomaly_monitor_enabled ? 1 : 0
+
   name         = "${var.name_prefix}-spend"
   monitor_type = "CUSTOM"
 
@@ -55,9 +58,11 @@ resource "aws_ce_anomaly_monitor" "this" {
 }
 
 resource "aws_ce_anomaly_subscription" "this" {
+  count = var.anomaly_monitor_enabled ? 1 : 0
+
   name             = "${var.name_prefix}-spend-alerts"
   frequency        = "IMMEDIATE" # individual alerts; requires SNS
-  monitor_arn_list = [aws_ce_anomaly_monitor.this.arn]
+  monitor_arn_list = [aws_ce_anomaly_monitor.this[0].arn]
 
   subscriber {
     type    = "SNS"

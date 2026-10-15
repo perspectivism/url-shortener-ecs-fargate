@@ -52,7 +52,7 @@ flowchart LR
 - Referrer → lowercase host only; country from `CloudFront-Viewer-Country`;
   dimension values normalized and capped at 64 characters.
 - The client IP comes from `CloudFront-Viewer-Address`, trustworthy only because
-  the ALB is reachable solely via CloudFront (ADR-0012); locally the TCP peer.
+  the ALB is reachable solely via CloudFront ([ADR-0012](0012-cloudfront-vpc-origin-internal-alb-waf.md)); locally the TCP peer.
 - Logs never contain IPs, API keys, `Authorization`, or destination URLs on
   the redirect path (verified by unit tests).
 - User agents are kept (truncated to 256 bytes) for device/browser

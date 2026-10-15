@@ -1,6 +1,6 @@
 # Messaging module
 
-Click-event SQS queue and DLQ (ADR-0010): SSE-KMS, 120 s visibility timeout, redrive after 5 receives, 14-day DLQ retention, DLQ restricted to its source queue, TLS-only queue policies.
+Click-event SQS queue and DLQ ([ADR-0010](../../../docs/adr/0010-async-click-pipeline.md)): SSE-KMS, 120 s visibility timeout, redrive after 5 receives, 14-day DLQ retention, DLQ restricted to its source queue, TLS-only queue policies.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

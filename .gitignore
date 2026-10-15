@@ -15,8 +15,12 @@
 !example.tfvars
 backend.hcl
 !backend.hcl.example
-tfplan
+# Saved plans and their logs/summaries hold every variable value (including
+# alert_email), account IDs and resource attributes: never commit them.
+tfplan*
 *.tfplan
+plan*.log
+plan*summary.txt
 crash.log
 crash.*.log
 .terraform.tfstate.lock.info
@@ -45,5 +49,6 @@ __pycache__/
 
 # Lock files are committed for root modules only (bootstrap, envs/*).
 infra/modules/**/.terraform.lock.hcl
-tfplan.json
-plan-summary.txt
+
+# Registry credentials (docker/crane login) if a tool is ever pointed at the repo.
+.docker/

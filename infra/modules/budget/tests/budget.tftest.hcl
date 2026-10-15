@@ -40,15 +40,15 @@ run "anomaly_detection_scoped_and_routed_to_sns" {
   command = apply
 
   assert {
-    condition     = jsondecode(aws_ce_anomaly_monitor.this.monitor_specification).Tags == { Key = "CostCenter", Values = ["shortener-test"] }
+    condition     = jsondecode(aws_ce_anomaly_monitor.this[0].monitor_specification).Tags == { Key = "CostCenter", Values = ["shortener-test"] }
     error_message = "The anomaly monitor must watch the environment's cost allocation tag."
   }
 
   assert {
     condition = (
-      aws_ce_anomaly_subscription.this.frequency == "IMMEDIATE" &&
-      one(aws_ce_anomaly_subscription.this.subscriber).address == var.topic_arn &&
-      contains(aws_ce_anomaly_subscription.this.monitor_arn_list, aws_ce_anomaly_monitor.this.arn)
+      aws_ce_anomaly_subscription.this[0].frequency == "IMMEDIATE" &&
+      one(aws_ce_anomaly_subscription.this[0].subscriber).address == var.topic_arn &&
+      contains(aws_ce_anomaly_subscription.this[0].monitor_arn_list, aws_ce_anomaly_monitor.this[0].arn)
     )
     error_message = "Anomalies must alert the topic immediately."
   }
@@ -62,4 +62,22 @@ run "rejects_non_positive_budget" {
   }
 
   expect_failures = [var.monthly_limit_usd]
+}
+
+run "anomaly_monitor_can_be_disabled_for_member_accounts" {
+  command = plan
+
+  variables {
+    anomaly_monitor_enabled = false
+  }
+
+  assert {
+    condition     = length(aws_ce_anomaly_monitor.this) == 0 && length(aws_ce_anomaly_subscription.this) == 0
+    error_message = "With anomaly_monitor_enabled = false no tag monitor is created (Organizations member accounts)."
+  }
+
+  assert {
+    condition     = length(aws_budgets_budget.monthly.notification) == 4
+    error_message = "The budget and its notifications remain."
+  }
 }

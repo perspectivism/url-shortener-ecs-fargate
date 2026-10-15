@@ -1,12 +1,12 @@
 # ADR-0024: Batched exactly-once click counting
 
-- **Status:** Accepted (supersedes the per-event transaction of [ADR-0010](0010-async-click-pipeline.md); the rest of ADR-0010 stands)
+- **Status:** Accepted (supersedes the per-event transaction of [ADR-0010](0010-async-click-pipeline.md); the rest of [ADR-0010](0010-async-click-pipeline.md) stands)
 - **Date:** 2026-10-15
 - **Deciders:** project owner, coding agent
 
 ## Context
 
-ADR-0010 and SPEC §8.2 count every click with its own DynamoDB transaction: a
+[ADR-0010](0010-async-click-pipeline.md) and SPEC §8.2 count every click with its own DynamoDB transaction: a
 dedupe marker `EVENT#{id}` plus `ADD 1` on the day item and four dimension
 items. That is simple and exactly-once, but it has two problems that appear
 well below "web scale":
@@ -18,7 +18,7 @@ well below "web scale":
 - **Hot links:** every click on a link updates the same `DAY#date` item. A
   single item sustains about 1,000 writes per second, so a viral link would
   throttle its counting at a few hundred clicks per second. Redirects keep
-  working by design (ADR-0010), but those clicks are delayed or dropped.
+  working by design ([ADR-0010](0010-async-click-pipeline.md)), but those clicks are delayed or dropped.
 
 "What happens when one link goes viral?" is the most likely interview
 follow-up, and the answer must not be "we stop counting it".

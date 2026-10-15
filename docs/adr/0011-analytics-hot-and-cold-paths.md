@@ -58,7 +58,7 @@ flowchart LR
 - **Uniques:** per-day HyperLogLog (≈ 0.81 % error, 12 KB max per key, exact
   in practice at small cardinalities). The nightly job persists yesterday's
   `PFCOUNT`; the stats endpoint reads the live HLL for recent days that are not
-  yet persisted. Multi-day uniques are not computed (visitor IDs rotate daily — ADR-0018).
+  yet persisted. Multi-day uniques are not computed (visitor IDs rotate daily — [ADR-0018](0018-privacy-hmac-visitor-ids-referrer-host-only.md)).
 
 **Cold path:** raw events in S3 as gzip NDJSON under
 `events/dt=YYYY-MM-DD/hour=HH/`, queried by Athena with partition projection

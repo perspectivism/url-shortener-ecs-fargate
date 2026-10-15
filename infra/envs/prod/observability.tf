@@ -38,9 +38,10 @@ module "observability" {
 module "budget" {
   source = "../../modules/budget"
 
-  name_prefix           = local.name_prefix
-  cost_tag              = { key = "CostCenter", value = local.name_prefix }
-  monthly_limit_usd     = var.monthly_budget_usd
-  anomaly_threshold_usd = var.anomaly_threshold_usd
-  topic_arn             = module.observability.topic_arn
+  name_prefix             = local.name_prefix
+  cost_tag                = { key = "CostCenter", value = local.name_prefix }
+  monthly_limit_usd       = var.monthly_budget_usd
+  anomaly_threshold_usd   = var.anomaly_threshold_usd
+  anomaly_monitor_enabled = var.cost_anomaly_monitor_enabled
+  topic_arn               = module.observability.topic_arn
 }

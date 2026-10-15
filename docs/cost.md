@@ -94,7 +94,7 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 | --- | --- |
 | Interface endpoints (fixed, per AZ) | `interface_endpoint_az_count = 1` in dev; `ssmmessages` only when break-glass ECS Exec is on |
 | NAT gateway | only when `url_scanning_enabled`; future: IPv6 egress-only gateway |
-| ALB + WAF fixed fees | unavoidable with the CloudFront VPC-origin design (ADR-0012) |
+| ALB + WAF fixed fees | unavoidable with the CloudFront VPC-origin design ([ADR-0012](adr/0012-cloudfront-vpc-origin-internal-alb-waf.md)) |
 | Fargate | ARM64 (−20 % vs x86), Spot for worker/nightly (and dev redirect), worker scales to zero |
 | Valkey | Serverless Valkey 100 MB minimum (vs 1 GB for Redis OSS); storage/ECPU caps |
 | DynamoDB | on-demand with maximum-throughput caps per table; click counters written in batches per link (≈ 2.2 instead of 12 write units per click for hot links, [ADR-0024](adr/0024-batched-exactly-once-click-counting.md)) |

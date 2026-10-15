@@ -1,6 +1,6 @@
 # Events lake module
 
-Cold analytics path (ADR-0011): raw-event and Athena-results buckets, Glue table with partition projection over `events/dt=/hour=/`, Athena workgroup with enforced encrypted results and a per-query scan cap, and three saved queries that deduplicate by `event_id`.
+Cold analytics path ([ADR-0011](../../../docs/adr/0011-analytics-hot-and-cold-paths.md)): raw-event and Athena-results buckets, Glue table with partition projection over `events/dt=/hour=/`, Athena workgroup with enforced encrypted results and a per-query scan cap, and three saved queries that deduplicate by `event_id`.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

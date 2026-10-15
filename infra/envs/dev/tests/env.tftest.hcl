@@ -92,3 +92,12 @@ run "phase2_services_with_every_spec_alarm" {
     error_message = "docs/runbook.md alarm sections (### 4.n `name`) must match the Terraform alarms exactly."
   }
 }
+run "rejects_other_regions" {
+  command = plan
+
+  variables {
+    region = "eu-west-1"
+  }
+
+  expect_failures = [var.region]
+}

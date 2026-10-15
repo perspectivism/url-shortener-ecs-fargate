@@ -1,6 +1,6 @@
 # Network module
 
-VPC with three subnet tiers (ADR-0013): public (NAT only), private egress (api, nightly; NAT route only when URL scanning is enabled) and private isolated (ALB, redirect, worker, Valkey, endpoints; no internet route). S3/DynamoDB gateway endpoints with account-scoped policies, interface endpoints behind a client security group, VPC flow logs to a CMK-encrypted log group. AZs are selected by AZ ID, excluding `use1-az3` (no CloudFront VPC origin support).
+VPC with three subnet tiers ([ADR-0013](../../../docs/adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md)): public (NAT only), private egress (api, nightly; NAT route only when URL scanning is enabled) and private isolated (ALB, redirect, worker, Valkey, endpoints; no internet route). S3/DynamoDB gateway endpoints with account-scoped policies, interface endpoints behind a client security group, VPC flow logs to a CMK-encrypted log group. AZs are selected by AZ ID, excluding `use1-az3` (no CloudFront VPC origin support).
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

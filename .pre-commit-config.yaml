@@ -26,6 +26,12 @@ repos:
         entry: scripts/with-tools.sh terraform fmt -check -diff
         language: system
         files: \.(tf|tftest\.hcl)$
+      - id: terraform-docs
+        name: terraform-docs READMEs up to date
+        entry: scripts/with-tools.sh scripts/tf-docs.sh --check
+        language: system
+        files: (\.tf|README\.md|\.terraform-docs\.yml)$
+        pass_filenames: false
       - id: markdownlint
         name: markdownlint
         entry: scripts/with-tools.sh markdownlint-cli2

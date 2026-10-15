@@ -1,6 +1,6 @@
 # Cache module
 
-ElastiCache Serverless for Valkey (ADR-0008, ADR-0009) with IAM authentication: an IAM app user (`user_id == user_name`, `-@dangerous`), a disabled mandatory `default` user, CMK encryption, storage/ECPU caps, no snapshots, and ingress only from a client security group.
+ElastiCache Serverless for Valkey ([ADR-0008](../../../docs/adr/0008-elasticache-serverless-valkey.md), [ADR-0009](../../../docs/adr/0009-valkey-iam-authentication.md)) with IAM authentication: an IAM app user (`user_id == user_name`, `-@dangerous`), a disabled mandatory `default` user, CMK encryption, storage/ECPU caps, no snapshots, and ingress only from a client security group.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

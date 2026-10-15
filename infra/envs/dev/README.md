@@ -63,6 +63,7 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | az\_count | Availability Zones (2 dev / 3 prod). | `number` | `2` | no |
 | cache\_max\_data\_storage\_gb | Valkey Serverless data storage cap (GB). | `number` | `1` | no |
 | cache\_max\_ecpu\_per\_second | Valkey Serverless ECPU/s cap. | `number` | `5000` | no |
+| cost\_anomaly\_monitor\_enabled | Create the tag-based Cost Anomaly Detection monitor (needs a management or standalone AWS account; false in an Organizations member account). | `bool` | `true` | no |
 | domain\_name | Optional custom domain (enables ACM certificates, HTTPS to the origin and TLSv1.2\_2021). | `string` | `null` | no |
 | ecs\_exec\_enabled | Break-glass ECS Exec (ADR-0003): off by default because AWS does not support it with read-only root filesystems; enabling relaxes that and adds the ssmmessages endpoint. Never in prod. | `bool` | `false` | no |
 | enable\_services | Phase 2: deploy ECS services and the edge (M5). Requires seeded secrets and pushed images. | `bool` | `false` | no |
@@ -78,7 +79,7 @@ Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` a
 | redirect\_max\_count | Maximum redirect tasks. | `number` | `2` | no |
 | redirect\_min\_count | Minimum (and initial) redirect tasks. | `number` | `1` | no |
 | redirect\_on\_spot | Run redirect on Fargate Spot (dev only; prod uses on-demand, ADR-0020). | `bool` | `true` | no |
-| region | AWS Region for regional resources. | `string` | `"us-east-1"` | no |
+| region | AWS Region for regional resources. Must be us-east-1: CloudFront's WAF, viewer certificate and log groups live there and share the environment's (regional) CMK. | `string` | `"us-east-1"` | no |
 | sqids\_alphabet | Non-secret shuffled Sqids alphabet for short codes (changing it changes future codes). | `string` | `"O7mH0bSxUPJnNZefjW25TzIALs3iX1kcRdMa8QD9hgKY4rEqlVyv6wGFoutBpC"` | no |
 | url\_scanning\_enabled | Scan destinations with Google Safe Browsing; creates the NAT gateway (false in dev, true in prod). | `bool` | `false` | no |
 | waf\_anonymous\_ip\_action | AnonymousIpList action: count (initial) or block (after review). | `string` | `"count"` | no |

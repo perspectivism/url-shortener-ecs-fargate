@@ -1,6 +1,6 @@
 # Edge module
 
-CloudFront + WAF in front of an internal ALB reached through a CloudFront VPC origin (ADR-0012): ALB security group admits only the CloudFront origin-facing prefix list, CachingDisabled on both behaviors, a custom origin request policy (Authorization, viewer address/country, ...), managed security headers, WAF managed rules and per-IP rate limits answering 429, logs for CloudFront, WAF and the ALB, and an optional custom domain with ACM certificates and HTTPS end to end.
+CloudFront + WAF in front of an internal ALB reached through a CloudFront VPC origin ([ADR-0012](../../../docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md)): ALB security group admits only the CloudFront origin-facing prefix list, CachingDisabled on both behaviors, a custom origin request policy (Authorization, viewer address/country, ...), managed security headers, WAF managed rules and per-IP rate limits answering 429, logs for CloudFront, WAF and the ALB, and an optional custom domain with ACM certificates and HTTPS end to end.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

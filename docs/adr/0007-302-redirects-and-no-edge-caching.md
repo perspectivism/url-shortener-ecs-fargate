@@ -49,7 +49,7 @@ DynamoDB TTL deletion timing. `HEAD` resolves identically but records no click.
 ### Negative
 
 - Every visit hits the origin, so latency and cost scale with clicks. The
-  Valkey cache (ADR-0008) keeps the origin fast and DynamoDB cheap.
+  Valkey cache ([ADR-0008](0008-elasticache-serverless-valkey.md)) keeps the origin fast and DynamoDB cheap.
 - No browser caching for repeat visitors.
 
 ## Interview Angle

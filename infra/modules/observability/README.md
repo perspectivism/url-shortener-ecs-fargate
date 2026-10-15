@@ -1,6 +1,6 @@
 # Observability module
 
-Alerting and dashboards for one environment (SPEC §13, ADR-0022):
+Alerting and dashboards for one environment (SPEC §13, [ADR-0022](../../../docs/adr/0022-observability-alerting-and-cost-guardrails.md)):
 
 - CMK-encrypted SNS alert topic with an optional email subscription. Its policy admits CloudWatch alarms, EventBridge rules (by source ARN), AWS Budgets and Cost Anomaly Detection (by source account) and denies non-TLS publishing.
 - Every SPEC §13 alarm, wired to the topic on ALARM and OK. Queue, DLQ and DynamoDB alarms exist from phase 1. Service alarms follow `services`: redirect 5xx rate and p99 latency, running tasks below desired, dropped clicks, cache errors, failed cache invalidations (the threat model relies on this alarm), and nightly scheduler and job failures.

@@ -10,7 +10,7 @@ SPEC §13 requires structured logs, a fixed set of application metrics, one
 dashboard per environment, alarms on the SLOs and the click pipeline delivered
 to SNS with an email subscription, and budget notifications. SPEC N1–N4 set
 the targets the alarms protect. The demo runs in a single account with dev and
-prod side by side (ADR-0019), so every signal and every cost figure must be
+prod side by side ([ADR-0019](0019-single-aws-account-for-dev-and-prod.md)), so every signal and every cost figure must be
 scoped to one environment.
 
 ## Decision Drivers

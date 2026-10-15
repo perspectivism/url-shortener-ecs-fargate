@@ -106,6 +106,6 @@ Chosen option: **2**.
 ## Future Work
 
 - Organization-level data perimeter (RCPs/SCPs with `aws:ResourceOrgID`)
-  once the project moves to multi-account (ADR-0019).
+  once the project moves to multi-account ([ADR-0019](0019-single-aws-account-for-dev-and-prod.md)).
 - IAM Access Analyzer unused-access findings and `check-no-new-access` in CI
   for policy diffs.

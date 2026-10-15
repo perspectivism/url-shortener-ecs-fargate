@@ -165,7 +165,7 @@ Access patterns:
 - **List an owner's links:** `gsi1` query.
 - **Stats:** one query on `STATS#code` over a date range.
 - **Count clicks:** `TransactWriteItems` per batch: each click's dedupe
-  marker plus one summed update per counter (≤ 100 items, ADR-0024).
+  marker plus one summed update per counter (≤ 100 items, [ADR-0024](adr/0024-batched-exactly-once-click-counting.md)).
 
 **Retention** ([ADR-0025](adr/0025-analytics-retention-13-months.md)).
 DynamoDB TTL deletes expired items in the background, usually within days;
@@ -257,11 +257,21 @@ the edge, every click travels to the origin region:
 | Europe | ~80–90 ms |
 | Asia-Pacific (e.g. Sydney) | ~200 ms |
 
-CloudFront softens this: TLS terminates at the nearest edge location, and
-CloudFront reaches the origin over the AWS backbone through persistent
-connections. A far-away user therefore pays roughly **one backbone round
-trip** per redirect, not several. That is the price of every click reaching
-us (analytics, instant disable).
+Where CloudFront has a nearby edge location, it softens this: TLS
+terminates at that edge, and CloudFront reaches the origin over the AWS
+backbone through persistent connections. Such a user pays roughly **one
+backbone round trip** per redirect, not several.
+
+The distribution uses **`PriceClass_100`**, which serves only from North
+American and European edge locations (cheapest). Users in Asia-Pacific,
+South America or Africa connect to one of those edges, so a Sydney user's
+TCP and TLS handshakes cross the ocean too: **several ~200 ms round trips on
+a new connection**, and one on a reused connection. `PriceClass_All` would
+give them a local edge and cut that back to the single backbone round trip,
+for slightly higher per-request prices in those regions (cents at demo
+volume). It is a one-line change in the edge module if the audience is global.
+
+That is the price of every click reaching us (analytics, instant disable).
 
 Options, from cheapest to most involved:
 
@@ -368,7 +378,7 @@ flowchart LR
 | Exfiltration from a task | Isolated subnets, endpoint data-perimeter policies, least-privilege roles, per-environment CMK ([ADR-0013](adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0023](adr/0023-iam-review-data-perimeter-and-waf-tuning.md)) |
 | Secrets | Secrets Manager values entered out of band; nothing in git, images or state ([ADR-0014](adr/0014-secrets-management.md)) |
 
-The full STRIDE analysis is in [threat-model.md](threat-model.md): 51 rows, all mitigated or accepted.
+The full STRIDE analysis is in [threat-model.md](threat-model.md): 52 rows, all mitigated or accepted.
 
 ## 10. Deployment architecture
 
@@ -474,7 +484,7 @@ At 100× the interview scale (≈ 400,000 redirects/s average):
 | Redirect compute | Fargate tasks behind an ALB | Still works (hundreds of tasks), but per-request ALB, WAF and CloudFront fees dominate. Serve hot links **at the edge** with CloudFront Functions + KeyValueStore, and collect clicks from CloudFront real-time logs |
 | Cache | Valkey Serverless | Add a tiny in-process LRU (1–5 s) per task for the hottest codes; Valkey stays the shared tier |
 | Link store | DynamoDB on-demand | Unchanged; DynamoDB scales horizontally, and the cache absorbs hot keys |
-| Analytics writes | Batched transactions: per-click markers + summed counters (≈ 2.2 WRU per hot-link click, 12 worst case; ADR-0024) | The markers (2 WRU per click) become the floor; drop to per-minute aggregation in a stream processor (Kinesis + Flink) with windowed dedupe |
+| Analytics writes | Batched transactions: per-click markers + summed counters (≈ 2.2 WRU per hot-link click, 12 worst case; [ADR-0024](adr/0024-batched-exactly-once-click-counting.md)) | The markers (2 WRU per click) become the floor; drop to per-minute aggregation in a stream processor (Kinesis + Flink) with windowed dedupe |
 | Queue | SQS standard | SQS still scales; Kinesis if replay or ordering is needed |
 | IDs | 1,000-ID blocks | Larger blocks (10,000+); the single counter item handles a few updates per second |
 | Regions | one | DynamoDB global tables for links, a regional cache and pipeline per region, latency-based routing |

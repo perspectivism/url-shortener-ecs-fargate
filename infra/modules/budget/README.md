@@ -1,6 +1,6 @@
 # Budget module
 
-Cost guardrails for one environment (SPEC §13, ADR-0022):
+Cost guardrails for one environment (SPEC §13, [ADR-0022](../../../docs/adr/0022-observability-alerting-and-cost-guardrails.md)):
 
 - An AWS Budget with notifications at 50 %, 80 % and 100 % of actual spend and at 100 % of forecast.
 - A customer-managed Cost Anomaly Detection monitor with immediate alerts at or above a USD impact threshold.
@@ -39,12 +39,13 @@ Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 | monthly\_limit\_usd | Monthly budget in USD; notifications at 50/80/100 % actual and 100 % forecast. | `number` | n/a | yes |
 | name\_prefix | Resource name prefix, e.g. "shortener-dev". | `string` | n/a | yes |
 | topic\_arn | SNS topic for budget and anomaly notifications (its policy must admit budgets.amazonaws.com and costalerts.amazonaws.com). | `string` | n/a | yes |
+| anomaly\_monitor\_enabled | Create the Cost Anomaly Detection tag monitor and subscription. Tag monitors need a management or standalone account; set false in an AWS Organizations member account (the budget still works). | `bool` | `true` | no |
 | anomaly\_threshold\_usd | Notify on cost anomalies whose total impact is at least this many USD. | `number` | `10` | no |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| anomaly\_monitor\_arn | Cost Anomaly Detection monitor ARN. |
+| anomaly\_monitor\_arn | Cost Anomaly Detection monitor ARN (null when anomaly\_monitor\_enabled is false). |
 | budget\_name | AWS Budgets budget name. |
 <!-- END_TF_DOCS -->

@@ -46,3 +46,9 @@ variable "topic_arn" {
     error_message = "topic_arn must be an SNS topic ARN."
   }
 }
+
+variable "anomaly_monitor_enabled" {
+  description = "Create the Cost Anomaly Detection tag monitor and subscription. Tag monitors need a management or standalone account; set false in an AWS Organizations member account (the budget still works)."
+  type        = bool
+  default     = true
+}

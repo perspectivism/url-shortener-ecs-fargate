@@ -17,7 +17,7 @@ private subnets.
 - No internet-reachable origin at all
 - Global TLS termination, HTTP/2 and HTTP/3, DDoS absorption at the edge
 - WAF in front of everything (managed rules, rate limits)
-- Trustworthy viewer IP and country for analytics (ADR-0018)
+- Trustworthy viewer IP and country for analytics ([ADR-0018](0018-privacy-hmac-visitor-ids-referrer-host-only.md))
 
 ## Considered Options
 
@@ -45,7 +45,7 @@ flowchart LR
   `com.amazonaws.global.cloudfront.origin-facing` and may only reach the task
   security groups on 8080. Target groups: IP targets, `/healthz`, 15 s deregistration delay.
 - **CloudFront**: VPC origin; **both behaviors use the managed `CachingDisabled`
-  policy** (ADR-0007); a custom origin request policy forwards `Authorization`,
+  policy** ([ADR-0007](0007-302-redirects-and-no-edge-caching.md)); a custom origin request policy forwards `Authorization`,
   `Content-Type`, `Idempotency-Key`, `User-Agent`, `Referer`,
   `CloudFront-Viewer-Country`, `CloudFront-Viewer-Address` and all query strings
   (no cookies); managed security-headers policy (HSTS); PriceClass_100;
@@ -59,7 +59,7 @@ flowchart LR
 Facts verified against AWS documentation on 2026-10-14:
 
 - VPC origins need an internet gateway in the VPC (not used for routing) and
-  are **not supported in `use1-az3`**; subnets are chosen by AZ ID (ADR-0013).
+  are **not supported in `use1-az3`**; subnets are chosen by AZ ID ([ADR-0013](0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md)).
 - The ALB security group may allow the CloudFront origin-facing prefix list (used
   here; can be set before the VPC origin exists) or the service-managed
   `CloudFront-VPCOrigins-Service-SG` (stricter, but only after creation).

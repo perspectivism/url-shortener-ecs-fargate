@@ -72,12 +72,12 @@ Key implementation choices:
 ### Negative
 
 - No ad-hoc queries; analytics are served from a separate table and from
-  S3 + Athena (ADR-0005, ADR-0011).
+  S3 + Athena ([ADR-0005](0005-separate-links-and-analytics-tables.md), [ADR-0011](0011-analytics-hot-and-cold-paths.md)).
 - Expired links are removed by TTL 30 days after expiry; after that, a custom
   alias can be registered again by someone else (acceptable: expired links are
   410 for 30 days first).
 - Hot partitions are possible for a viral link's reads — mitigated by the
-  Valkey cache (ADR-0008).
+  Valkey cache ([ADR-0008](0008-elasticache-serverless-valkey.md)).
 
 ## Interview Angle
 

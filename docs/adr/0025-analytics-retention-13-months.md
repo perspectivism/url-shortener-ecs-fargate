@@ -37,7 +37,7 @@ Chosen option: **3 — 13 months**, decided by the project owner on 2026-10-15.
 - **Deleting a link does not delete its stats:** they expire on the same
   schedule. They support abuse investigations (who clicked a malicious link,
   from which referrers), and they are aggregates with no IPs (visitor IDs are
-  per-day keyed HMACs, ADR-0018). The API answers 404 for a deleted link, so
+  per-day keyed HMACs, [ADR-0018](0018-privacy-hmac-visitor-ids-referrer-host-only.md)). The API answers 404 for a deleted link, so
   owners no longer see them.
 - **Raw events in S3:** prod retention goes from 365 to 395 days (13 months)
   to match; dev stays at 30 days for cost.

@@ -8,7 +8,7 @@
 
 Two runtime secrets exist (SPEC §11.1): the Google Safe Browsing API key
 (`api`, `nightly`) and the visitor-hash salt (`redirect`). API keys are stored
-as hashes in DynamoDB (ADR-0015); Valkey and AWS need no credentials (IAM).
+as hashes in DynamoDB ([ADR-0015](0015-api-key-authentication.md)); Valkey and AWS need no credentials (IAM).
 Terraform state is readable by anyone with state access, so any value Terraform
 manages — including `random_password` and `aws_secretsmanager_secret_version` —
 is effectively stored in plain text in state.

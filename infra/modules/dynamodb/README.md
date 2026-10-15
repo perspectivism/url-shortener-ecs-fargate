@@ -1,6 +1,6 @@
 # DynamoDB module
 
-The `links` and `analytics` tables (ADR-0004, ADR-0005): on-demand with maximum-throughput caps, PITR, CMK encryption, TTL on `ttl`, deletion protection driven by `!force_destroy`. Must match `internal/store/schema.go`.
+The `links` and `analytics` tables ([ADR-0004](../../../docs/adr/0004-dynamodb-for-the-link-store.md), [ADR-0005](../../../docs/adr/0005-separate-links-and-analytics-tables.md)): on-demand with maximum-throughput caps, PITR, CMK encryption, TTL on `ttl`, deletion protection driven by `!force_destroy`. Must match `internal/store/schema.go`.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

@@ -60,7 +60,7 @@ infra/
   (nothing bootstrapped yet), `make plan` runs in a scratch copy with a
   temporary local backend — read-only.
 - **Every role carries the CI permissions boundary** (`shortener-ci-boundary`),
-  because CI may only create roles that carry it (ADR-0017).
+  because CI may only create roles that carry it ([ADR-0017](0017-cicd-github-oidc-rolling-deploys.md)).
 - **Quality gates:** `make tf-check` = fmt, validate, tflint (AWS ruleset + all
   core rules), checkov, Trivy config (MEDIUM+), `terraform test` with
   `mock_provider` for every module and the bootstrap, parity, and README

@@ -17,6 +17,23 @@ must_ignore=(
   infra/bootstrap/terraform.tfstate.backup
   infra/envs/dev/.terraform/providers/x
   infra/envs/dev/tfplan
+  infra/envs/dev/tfplan.json
+  infra/envs/dev/plan.log
+  infra/envs/dev/plan-summary.txt
+  infra/envs/dev/tfplan-destroy
+  infra/envs/dev/plan-destroy.log
+  infra/envs/dev/plan-destroy-summary.txt
+  infra/envs/prod/tfplan-unprotect
+  infra/envs/prod/plan-unprotect.log
+  infra/bootstrap/tfplan-destroy
+  infra/bootstrap/tfplan-unprotect
+  infra/bootstrap/backend_override.tf
+  infra/envs/dev/terraform.tfvars.json
+  infra/bootstrap/terraform.tfvars
+  dist/images/redirect/index.json
+  coverage/unit.out
+  tests/load/results/summary.json
+  .docker/config.json
   server.pem
   private.key
 )

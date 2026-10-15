@@ -200,7 +200,7 @@ aws ecs describe-services --cluster $p --services $p-worker --query 'services[0]
 ```
 
 **Remediation:** fix the worker failure; raise `worker_max_count` for sustained backlog (§5.10).
-Counting is batched (ADR-0024): the dashboard's "Click pipeline" widget shows
+Counting is batched ([ADR-0024](adr/0024-batched-exactly-once-click-counting.md)): the dashboard's "Click pipeline" widget shows
 counting transactions next to processed events, so a falling ratio of clicks
 per transaction means each write carries fewer clicks. Rising `WorkerRetries`
 means counting transactions are failing (conflicts on a hot counter between

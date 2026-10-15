@@ -1,6 +1,6 @@
 # ECS cluster module
 
-ECS cluster with Fargate and Fargate Spot capacity providers and Container Insights (ADR-0003, ADR-0020). Break-glass ECS Exec sessions are KMS-encrypted and audited to a CMK-encrypted log group.
+ECS cluster with Fargate and Fargate Spot capacity providers and Container Insights ([ADR-0003](../../../docs/adr/0003-ecs-on-fargate.md), [ADR-0020](../../../docs/adr/0020-graviton-arm64-and-fargate-spot.md)). Break-glass ECS Exec sessions are KMS-encrypted and audited to a CMK-encrypted log group.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

@@ -1,6 +1,6 @@
 # ECS service module
 
-Reusable Fargate service (SPEC §12.4, ADR-0003): hardened task definition (ARM64, read-only root FS, UID 65532, all capabilities dropped, non-blocking awslogs, binary health check), dedicated task and execution roles (execution role limited to its own repository, log group and secrets), its own security group (ingress from the ALB only), rolling deploys with the circuit breaker and rollback (ADR-0017), and target-tracking or queue-backlog autoscaling.
+Reusable Fargate service (SPEC §12.4, [ADR-0003](../../../docs/adr/0003-ecs-on-fargate.md)): hardened task definition (ARM64, read-only root FS, UID 65532, all capabilities dropped, non-blocking awslogs, binary health check), dedicated task and execution roles (execution role limited to its own repository, log group and secrets), its own security group (ingress from the ALB only), rolling deploys with the circuit breaker and rollback ([ADR-0017](../../../docs/adr/0017-cicd-github-oidc-rolling-deploys.md)), and target-tracking or queue-backlog autoscaling.
 
 Tests: `tests/*.tftest.hcl` (`terraform test`, mock provider).
 

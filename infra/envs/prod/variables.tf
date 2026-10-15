@@ -21,13 +21,13 @@ variable "environment" {
 }
 
 variable "region" {
-  description = "AWS Region for regional resources."
+  description = "AWS Region for regional resources. Must be us-east-1: CloudFront's WAF, viewer certificate and log groups live there and share the environment's (regional) CMK."
   type        = string
   default     = "us-east-1"
 
   validation {
-    condition     = can(regex("^[a-z]{2}(-[a-z]+)+-\\d$", var.region))
-    error_message = "region must be an AWS Region name such as us-east-1."
+    condition     = var.region == "us-east-1"
+    error_message = "region must be us-east-1: the CloudFront/WAF log groups and certificate are in us-east-1 and use this environment's CMK, which is regional. Another region needs a second CMK in us-east-1 for the edge module first."
   }
 }
 
@@ -231,4 +231,10 @@ variable "anomaly_threshold_usd" {
   description = "Cost Anomaly Detection alert threshold (total impact, USD)."
   type        = number
   default     = 25
+}
+
+variable "cost_anomaly_monitor_enabled" {
+  description = "Create the tag-based Cost Anomaly Detection monitor (needs a management or standalone AWS account; false in an Organizations member account)."
+  type        = bool
+  default     = true
 }

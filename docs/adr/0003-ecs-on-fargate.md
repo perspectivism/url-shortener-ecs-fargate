@@ -28,7 +28,7 @@ to patch and the demo must be cheap when idle.
 
 ## Decision
 
-Chosen option: **4 — ECS on Fargate**, ARM64, with Spot where safe (ADR-0020).
+Chosen option: **4 — ECS on Fargate**, ARM64, with Spot where safe ([ADR-0020](0020-graviton-arm64-and-fargate-spot.md)).
 
 | | Lambda | EKS | ECS on EC2 | **ECS Fargate** |
 | --- | --- | --- | --- | --- |

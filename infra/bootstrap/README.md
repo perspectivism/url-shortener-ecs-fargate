@@ -1,6 +1,6 @@
 # Bootstrap
 
-One-time, per-account root (ADR-0016, ADR-0017): the Terraform state bucket (SSE-KMS, versioning, S3 native locking) and its access-log bucket, the state CMK, the GitHub OIDC provider, the CI permissions boundary, the pull-request plan role and one apply role per GitHub environment. Run through `make bootstrap` (approval required); the first apply uses a temporary local backend and then migrates its own state into the bucket it created.
+One-time, per-account root ([ADR-0016](../../docs/adr/0016-terraform-layout-environments-s3-native-locking.md), [ADR-0017](../../docs/adr/0017-cicd-github-oidc-rolling-deploys.md)): the Terraform state bucket (SSE-KMS, versioning, S3 native locking) and its access-log bucket, the state CMK, the GitHub OIDC provider, the CI permissions boundary, the pull-request plan role and one apply role per GitHub environment. Run through `make bootstrap` (approval required); the first apply uses a temporary local backend and then migrates its own state into the bucket it created.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

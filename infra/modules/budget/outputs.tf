@@ -4,6 +4,6 @@ output "budget_name" {
 }
 
 output "anomaly_monitor_arn" {
-  description = "Cost Anomaly Detection monitor ARN."
-  value       = aws_ce_anomaly_monitor.this.arn
+  description = "Cost Anomaly Detection monitor ARN (null when anomaly_monitor_enabled is false)."
+  value       = one(aws_ce_anomaly_monitor.this[*].arn)
 }
