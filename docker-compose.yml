@@ -41,7 +41,7 @@ services:
     ports: ["127.0.0.1:8000:8000"]
 
   valkey:
-    image: valkey/valkey:9.0.6-alpine3.24@sha256:187679e3bd4036959631e3f03983ab2ba503ab21e6fd0454d508e909db2ee989
+    image: valkey/valkey:9.1.2-alpine3.24@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
     command: ["valkey-server", "--save", "", "--appendonly", "no"]
     ports: ["127.0.0.1:6379:6379"]
     healthcheck:
