@@ -16,12 +16,13 @@ if [[ -n "$(git status --porcelain)" ]]; then
   [[ "${ALLOW_DIRTY:-}" == 1 ]] || { echo "refusing: working tree is dirty; images must correspond to a commit" >&2; exit 1; }
   tag="$tag-dirty"
 fi
+version="$(scripts/version.sh)" # ADR-0026; the image tag stays the bare SHA
 out="dist/images"
 rm -rf "$out" && mkdir -p "$out"
 
 for svc in "${services[@]}"; do
   docker buildx build --quiet --platform linux/arm64 --provenance=false --sbom=false \
-    --build-arg SERVICE="$svc" --build-arg VERSION="$tag" -f build/Dockerfile \
+    --build-arg SERVICE="$svc" --build-arg VERSION="$version" --build-arg REVISION="$tag" -f build/Dockerfile \
     --output "type=oci,dest=$out/$svc,tar=false" . >/dev/null
   n="$(jq '.manifests | length' "$out/$svc/index.json")"
   [[ "$n" == 1 ]] || { echo "$svc: expected 1 manifest in the layout, found $n" >&2; exit 1; }
@@ -32,4 +33,5 @@ for svc in "${services[@]}"; do
   echo "$svc $digest"
 done | tee "$out/digests.txt"
 echo "$tag" >"$out/tag"
-echo "built $(wc -l <"$out/digests.txt") images, tag $tag -> $out"
+echo "$version" >"$out/version"
+echo "built $(wc -l <"$out/digests.txt") images, tag $tag, version $version -> $out"

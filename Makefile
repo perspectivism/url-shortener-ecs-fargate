@@ -17,6 +17,8 @@ export PUPPETEER_CACHE_DIR := $(ROOT)/.tools/puppeteer
 
 ENV      ?= dev
 GIT_SHA  := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)$(shell git status --porcelain 2>/dev/null | grep -q . && echo -dirty)
+# Version stamped into binaries (ADR-0026): v0.1.0+<sha>, v0.1.0-4-g<sha>, ...
+VERSION  := $(shell scripts/version.sh 2>/dev/null || echo dev)
 COVERAGE_MIN ?= 80
 
 ##@ General
@@ -144,7 +146,7 @@ export IMAGE_TAG
 images: ## Build arm64 images tagged with the git SHA
 	@for s in $(SERVICES); do \
 		echo "==> $(IMAGE_REPO)/$$s:$(IMAGE_TAG) ($(PLATFORM))"; \
-		docker buildx build --quiet --platform $(PLATFORM) --build-arg SERVICE=$$s --build-arg VERSION=$(IMAGE_TAG) \
+		docker buildx build --quiet --platform $(PLATFORM) --build-arg SERVICE=$$s --build-arg VERSION=$(VERSION) --build-arg REVISION=$(IMAGE_TAG) \
 			-f build/Dockerfile -t $(IMAGE_REPO)/$$s:$(IMAGE_TAG) --load . >/dev/null || exit 1; \
 	done
 
@@ -156,7 +158,7 @@ images-oci: ## Build the deployable arm64 OCI layouts in dist/images (one digest
 images-local: ## Build native-platform images tagged "local" for the compose app stack
 	@for s in $(SERVICES) shortenerctl; do \
 		echo "==> $(IMAGE_REPO)/$$s:local"; \
-		docker buildx build --quiet --build-arg SERVICE=$$s --build-arg VERSION=$(GIT_SHA) \
+		docker buildx build --quiet --build-arg SERVICE=$$s --build-arg VERSION=$(VERSION) --build-arg REVISION=$(GIT_SHA) \
 			-f build/Dockerfile -t $(IMAGE_REPO)/$$s:local --load . >/dev/null || exit 1; \
 	done
 
@@ -251,9 +253,18 @@ check-workflows: tools-check ## actionlint, zizmor (medium+), every action/image
 fresh-clone-test: ## Clone HEAD to a temp dir, run the README local quickstart verbatim, then integration tests
 	@scripts/fresh-clone-test.sh
 
+.PHONY: version
+version: ## Print the version stamped into binaries (ADR-0026)
+	@echo $(VERSION)
+
+.PHONY: test-scripts
+test-scripts: ## Self-tests for the version and release scripts
+	@scripts/test-version.sh
+	@scripts/test-release.sh
+
 .PHONY: ci
 ci: ## Everything CI runs, locally (the dev plan needs AWS and runs only in CI)
-	$(MAKE) lint test vuln test-secret-scan secret-scan check-ignore
+	$(MAKE) lint test test-scripts vuln test-secret-scan secret-scan check-ignore
 	$(MAKE) test-integration
 	$(MAKE) images check-images scan-images test-image-secret-scan
 	$(MAKE) tf-check

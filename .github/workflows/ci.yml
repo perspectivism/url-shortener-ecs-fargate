@@ -34,6 +34,7 @@ jobs:
       - run: make tools
       - run: make lint
       - run: make test
+      - run: make test-scripts
       - run: make vuln
       - run: make test-secret-scan secret-scan check-ignore
 

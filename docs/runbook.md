@@ -462,6 +462,7 @@ flowchart LR
     build --> dev["dev: push + verify digests<br/>plan → apply saved plan → smoke"]
     dev --> wait{"👤 prod reviewers"}
     wait -->|approve| prod["prod: same digests<br/>plan → apply → smoke"]
+    prod --> rel["GitHub Release vX.Y.0<br/>tag + image digests"]
 ```
 
 - Normal path: merge a reviewed PR. `deploy.yml` builds once, pushes the
@@ -471,6 +472,15 @@ flowchart LR
 - **Prod** waits for a reviewer to approve the `prod` environment. Before
   approving, check that the dev smoke step is green and the dev dashboard is
   quiet. The prod job pushes the **same digests** and verifies them.
+- **Release:** after the prod smoke tests pass, `scripts/release.sh` creates
+  the next GitHub Release, bumping the minor version (`v0.1.0` → `v0.2.0`).
+  The release creates its tag and records the commits since the previous
+  release and the exact image digests now in prod.
+  - To cut a **major** release, tag the commit by hand (`git tag -a v1.0.0 -m …`
+    and push the tag) before approving prod. The release then uses that tag.
+  - Binaries log their build version in every line's `version` field
+    ([ADR-0026](adr/0026-release-versioning-with-tags.md)). `git describe --tags <sha>` maps a describe-style version
+    (`v0.2.0-4-g<sha>`) to its release.
 - Manual deploy, from a clean commit with admin credentials: run `make
   images-oci`, then `APPROVED=yes make push-images ENV=dev`, then set
   `image_tag` in `terraform.tfvars`. Run `make plan ENV=dev`; once the plan is
@@ -485,7 +495,9 @@ flowchart LR
    - **Revert (preferred):** merge `git revert <bad sha>`. The pipeline ships
      the reverted code through dev and prod as a new, reviewed SHA.
    - **Fast rollback:** use admin credentials with `image_tag` set to the last
-     good SHA (its images are still in ECR, since tags are immutable). Set it in
+     good release's SHA: `git rev-parse --short=12 v0.3.0^{commit}`, or read
+     it from the release notes. Its images are still in ECR, since tags are
+     immutable. Set it in
      `infra/envs/<env>/terraform.tfvars` and run `make plan ENV=<env>`. After
      approval, run `APPROVED=yes make apply ENV=<env>`, then `make smoke-env ENV=<env>`.
      Afterwards, merge a revert so `main` matches what is deployed.

@@ -374,6 +374,9 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"Deploys?"* Images are built once and the same digests are promoted.
     Rolling deploys use the circuit breaker; prod waits for a reviewer.
+  - *"What's running in prod?"* The latest GitHub Release. The pipeline
+    tags each commit that passes prod smoke tests and records its image
+    digests ([ADR-0026](docs/adr/0026-release-versioning-with-tags.md)).
   - *"Why one account?"* Demo simplicity, with cross-environment guardrails ([ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md)).
   - *"What if us-east-1 goes down?"*
     - **Today:** an outage until AWS recovers, with no data lost.
@@ -382,7 +385,7 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
     - **Cross-region DR** would be global tables plus a second stack (RTO in
       minutes, about the cost of a second prod), or a backup "pilot light".
     - Details: [design §11](docs/design.md#11-operations).
-- 📎 [ADR-0003](docs/adr/0003-ecs-on-fargate.md), [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md), [ADR-0013](docs/adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0016](docs/adr/0016-terraform-layout-environments-s3-native-locking.md), [ADR-0017](docs/adr/0017-cicd-github-oidc-rolling-deploys.md), [ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md), [ADR-0020](docs/adr/0020-graviton-arm64-and-fargate-spot.md)
+- 📎 [ADR-0003](docs/adr/0003-ecs-on-fargate.md), [ADR-0026](docs/adr/0026-release-versioning-with-tags.md), [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md), [ADR-0013](docs/adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0016](docs/adr/0016-terraform-layout-environments-s3-native-locking.md), [ADR-0017](docs/adr/0017-cicd-github-oidc-rolling-deploys.md), [ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md), [ADR-0020](docs/adr/0020-graviton-arm64-and-fargate-spot.md)
 
 ### 11. Operations: observability, SLOs, runbook
 
@@ -491,7 +494,8 @@ docs/           design, ADRs, threat model, runbook, cost
 | Document | Contents |
 | --- | --- |
 | [docs/design.md](docs/design.md) | System design, in walkthrough order |
-| [docs/adr/](docs/adr/README.md) | 25 architecture decision records, each with an Interview Angle |
+| [docs/adr/](docs/adr/README.md) | 26 architecture decision records, each with an Interview Angle |
+| [CHANGELOG.md](CHANGELOG.md) | Releases (tagged automatically when a commit reaches prod) |
 | [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, STRIDE, residual risks, suppressions |
 | [docs/runbook.md](docs/runbook.md) | SLOs, every alarm, deploy/rollback and operational procedures |
 | [docs/cost.md](docs/cost.md) | Cost model, levers, guardrails |
