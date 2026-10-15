@@ -8,8 +8,8 @@
 
 Every access pattern on links is a single-key lookup or a single-partition
 query (SPEC §5.3): resolve a code, create a code if unused, allocate an ID
-block, authenticate an API key by hash, and list one owner's links. At
-interview scale (100 M new links/month, ~4 k redirects/s average, ~40 k peak)
+block, authenticate an API key by hash, and list one owner's links. At the
+reference scale (100 M new links/month, ~4 k redirects/s average, ~40 k peak)
 storage reaches ~3 TB over five years (SPEC §2.3). At demo scale the tables are
 nearly idle most of the time.
 
@@ -79,11 +79,11 @@ Key implementation choices:
 - Hot partitions are possible for a viral link's reads — mitigated by the
   Valkey cache ([ADR-0008](0008-elasticache-serverless-valkey.md)).
 
-## Interview Angle
+## Summary
 
-> "Every query is a key lookup or one partition, so a key-value store fits:
-> conditional writes give me collision-safe creates, there are no connection
-> pools to size, and it costs nothing when idle."
+Every query is a key lookup or one partition, so a key-value store fits:
+conditional writes make creates collision-safe, there are no connection
+pools to size, and it costs nothing when idle.
 
 ## Future Work
 

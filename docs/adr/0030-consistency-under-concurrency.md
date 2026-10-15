@@ -84,9 +84,9 @@ it is now write time + 4 days. Redriving DLQ messages is safe within 4 days.
   IETF idempotency-key draft recommends.
 - Markers live one day longer, which costs a few more storage bytes per click.
 
-## Interview Angle
+## Summary
 
-> "Cache-aside has a classic race: a slow reader re-caches stale data after
-> the writer invalidates. We fence instead of delete and make fills
-> SET-if-absent. Idempotency got the same treatment: claim the key
-> atomically, then act."
+Cache-aside has a classic race: a slow reader re-caches stale data after
+the writer invalidates. The fix is to fence instead of delete and make fills
+SET-if-absent. Idempotency got the same treatment: claim the key
+atomically, then act.

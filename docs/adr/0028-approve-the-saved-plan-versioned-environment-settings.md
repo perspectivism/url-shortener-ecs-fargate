@@ -91,9 +91,9 @@ different plan from the one shown.
 - Plans from runs that were never approved stay in the bucket until deleted
   (they are small; noncurrent versions expire after 90 days).
 
-## Interview Angle
+## Summary
 
-> "Reviewers approve a plan, not a promise. The plan job runs read-only and
-> publishes the saved plan and its hash; the approval-gated job applies that
-> exact file or nothing. Environment settings are committed, so CI can't
-> quietly drift back to defaults."
+Reviewers approve a plan, not a promise. The plan job runs read-only and
+publishes the saved plan and its hash; the approval-gated job applies that
+exact file or nothing. Environment settings are committed, so CI can't
+quietly drift back to defaults.

@@ -69,9 +69,9 @@ flowchart LR
 - A manual step between foundation and services (two-phase deploy).
 - Rotation is manual (documented, rare).
 
-## Interview Angle
+## Summary
 
-> "Terraform creates the secret's container, encryption and access policy, but
-> never the value — anything Terraform touches ends up in state. A human seeds
-> the value from their terminal, and only the consuming task's execution role
-> can read it."
+Terraform creates the secret's container, encryption and access policy, but
+never the value — anything Terraform touches ends up in state. A human seeds
+the value from their terminal, and only the consuming task's execution role
+can read it.

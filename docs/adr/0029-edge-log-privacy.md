@@ -69,9 +69,9 @@ above. The privacy claim in the docs now says exactly that.
   the application's access log; there is no IP to search by.
 - The WAF console shows no sampled requests; use Logs Insights on the WAF log group.
 
-## Interview Angle
+## Summary
 
-> "Privacy has to hold at every hop, not only in the database. The edge logs
-> an allowlist of fields, WAF keeps only blocked and counted requests (it
-> can't redact IPs), and request sampling is off because it ignores log redaction
-> and would show API keys."
+Privacy has to hold at every hop, not only in the database. The edge logs
+an allowlist of fields, WAF keeps only blocked and counted requests (it
+can't redact IPs), and request sampling is off because it ignores log redaction
+and would show API keys.

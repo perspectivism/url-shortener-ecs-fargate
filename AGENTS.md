@@ -292,8 +292,8 @@ flowchart LR
 - **Mermaid everywhere a picture helps:** architecture, sequences, data flows with trust boundaries, runbook diagnosis flowcharts, CI/CD. Every diagram must render via `make docs-check`. Prefer `flowchart`, `sequenceDiagram`, `classDiagram`; quote labels containing special characters; use `<br/>` for line breaks.
 - **Table of contents** for any Markdown file over ~100 lines or with more than 4 top-level sections. Keep anchors working.
 - **Emojis:** welcome in headings, callouts, and diagram labels for scannability. Keep prose professional; no emoji in code, commands, or file names.
-- **README** is written for presenting in an interview (SPEC §17.1): each walkthrough step has 🗣️ Say / 🔍 Show / ⚖️ Trade-off / ❓ Follow-ups and links to its ADR. Commands in the Quickstart must be copy-pasteable and tested by the fresh-clone check.
-- **ADRs:** MADR format with the extra "Interview Angle" section. Never edit an accepted ADR's decision — supersede it with a new ADR.
+- **README** walks through the design (SPEC §17.1): each walkthrough step opens with a short summary, then See / Trade-off / Common questions, and links to its ADRs. Commands in the Quickstart must be copy-pasteable and tested by the fresh-clone check.
+- **ADRs:** MADR format with the extra "Summary" section. Never edit an accepted ADR's decision — supersede it with a new ADR.
 - Docs must describe what was **actually built**. If implementation deviates from SPEC, update docs and note the deviation in `GATES.md` and the relevant ADR.
 
 ---

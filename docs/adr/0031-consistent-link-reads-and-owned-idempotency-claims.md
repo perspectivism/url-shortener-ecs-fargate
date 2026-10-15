@@ -62,10 +62,10 @@ fixes found two gaps:
 - Strongly consistent reads cost twice as much per cache miss.
 - A create that needs more than 10 seconds fails (and releases its claim) instead of running on.
 
-## Interview Angle
+## Summary
 
-> "An invalidation is only as good as the next read. We fence the cache and
-> read DynamoDB strongly consistently on a miss, because eventually consistent
-> reads can return the version you just disabled. And a lease needs an owner:
-> each idempotency claim carries a token, so a slow request can't clobber the
-> one that replaced it."
+An invalidation is only as good as the next read. So the cache is fenced,
+and a miss reads DynamoDB strongly consistently, because an eventually
+consistent read can return the version that was just disabled. And a lease needs an owner:
+each idempotency claim carries a token, so a slow request can't clobber the
+one that replaced it.

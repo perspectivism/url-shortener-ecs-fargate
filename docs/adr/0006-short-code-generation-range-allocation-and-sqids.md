@@ -83,9 +83,9 @@ instances with block size 100 (≈ 100 interleaved block claims) produced
   with old codes are caught by the conditional write).
 - Gaps in the ID space after restarts.
 
-## Interview Angle
+## Summary
 
-> "Each server leases a block of 1 000 IDs with one atomic increment, then
-> encodes IDs with Sqids — uniqueness is guaranteed without coordination, the
-> counter is touched once per thousand writes, and codes don't look sequential.
-> It's obfuscation, not secrecy, and links aren't secrets anyway."
+Each server leases a block of 1 000 IDs with one atomic increment, then
+encodes IDs with Sqids — uniqueness is guaranteed without coordination, the
+counter is touched once per thousand writes, and codes don't look sequential.
+It's obfuscation, not secrecy, and links aren't secrets anyway.

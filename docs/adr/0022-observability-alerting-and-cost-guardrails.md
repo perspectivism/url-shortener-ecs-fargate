@@ -124,14 +124,14 @@ flowchart LR
   guardrails, not real-time limits.
 - Email alerting depends on a human confirming the subscription.
 
-## Interview Angle
+## Summary
 
-> "Services print EMF to stdout, so metrics come for free with the logs. That
-> means no agent and no extra endpoint. The alarms watch what users feel —
-> redirect error rate, p99, lost clicks, stale analytics — and every alarm,
-> budget and anomaly alert goes to one encrypted SNS topic. A plan-level check
-> fails the build if any log group lacks retention or encryption, or if an
-> alarm has no action."
+Services print EMF to stdout, so metrics come for free with the logs. That
+means no agent and no extra endpoint. The alarms watch what users feel —
+redirect error rate, p99, lost clicks, stale analytics — and every alarm,
+budget and anomaly alert goes to one encrypted SNS topic. A plan-level check
+fails the build if any log group lacks retention or encryption, or if an
+alarm has no action.
 
 ## Future Work
 

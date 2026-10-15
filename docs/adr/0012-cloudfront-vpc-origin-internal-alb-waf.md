@@ -94,9 +94,9 @@ Facts verified against AWS documentation on 2026-10-14:
 - CloudFront changes take minutes to deploy; distributions must be disabled before deletion.
 - VPC-origin AZ restrictions constrain subnet placement.
 
-## Interview Angle
+## Summary
 
-> "There's no public origin to attack: CloudFront reaches an internal ALB
-> through a VPC origin, the ALB only admits CloudFront's origin-facing
-> addresses, and WAF plus rate limits sit at the edge. Nothing is cached there,
-> because every click must reach the origin."
+There's no public origin to attack: CloudFront reaches an internal ALB
+through a VPC origin, the ALB only admits CloudFront's origin-facing
+addresses, and WAF plus rate limits sit at the edge. Nothing is cached there,
+because every click must reach the origin.

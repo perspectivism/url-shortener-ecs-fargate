@@ -59,9 +59,9 @@ Chosen option: **3 — self-managed API keys** (`internal/auth`).
 - Key distribution is manual (operator CLI).
 - Up to 60 s revocation delay per task.
 
-## Interview Angle
+## Summary
 
-> "Clients are programs, so bearer API keys are the right tool: 256 random
-> bits, shown once, stored as a SHA-256 — slow hashing only matters for
-> guessable secrets — scoped, revocable, and checked per owner so you can't
-> even learn that someone else's link exists."
+Clients are programs, so bearer API keys are the right tool: 256 random
+bits, shown once, stored as a SHA-256 — slow hashing only matters for
+guessable secrets — scoped, revocable, and checked per owner so a caller can't
+even learn that another owner's link exists.

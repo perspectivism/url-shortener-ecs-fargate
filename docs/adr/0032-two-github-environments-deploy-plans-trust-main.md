@@ -60,8 +60,8 @@ Chosen option: **2**.
 - A plan job can write to `plans/dev/` as well as `plans/prod/`. The hash
   check makes that harmless.
 
-## Interview Angle
+## Summary
 
-> "Environments are for approvals. The plan step needs an identity, not an
-> approval, so it runs on main under a read-only role, and only the two
-> approval-gated environments can apply."
+Environments are for approvals. The plan step needs an identity, not an
+approval, so it runs on main under a read-only role, and only the two
+approval-gated environments can apply.

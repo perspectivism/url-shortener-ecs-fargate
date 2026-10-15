@@ -61,9 +61,9 @@ exactly when a link is deleted for abuse.
   harmless here: there is no deployed data yet.
 - A deleted link's stats are retained but not readable through the API.
 
-## Interview Angle
+## Summary
 
-> "Analytics expire after 13 months, so you can still compare this month with
-> the same month last year, and the table doesn't grow forever. Stats
-> outlive a deleted link because that is when you need them for abuse
-> investigations, and they're pseudonymous aggregates anyway."
+Analytics expire after 13 months, so a month can still be compared with
+the same month a year earlier, and the table doesn't grow forever. Stats
+outlive a deleted link because that is when you need them for abuse
+investigations, and they're pseudonymous aggregates anyway.

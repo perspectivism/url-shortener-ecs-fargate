@@ -132,8 +132,8 @@ flowchart LR
   of traffic until detected by alarms (mitigated by smoke tests after deploy).
 - Rolling deploys briefly run two versions side by side (both must be compatible).
 
-## Interview Angle
+## Summary
 
-> "Every deploy is an apply with a new git-SHA image tag; ECS rolls tasks with
-> full capacity, and the circuit breaker automatically rolls back a version
-> that can't get healthy — Terraform fails, so the pipeline fails."
+Every deploy is an apply with a new git-SHA image tag; ECS rolls tasks with
+full capacity, and the circuit breaker automatically rolls back a version
+that can't get healthy — Terraform fails, so the pipeline fails.

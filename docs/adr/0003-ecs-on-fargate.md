@@ -17,7 +17,7 @@ to patch and the demo must be cheap when idle.
 - No nodes or control planes to operate
 - Same container runs locally and in AWS
 - Hardened runtime (read-only root FS, non-root, no capabilities)
-- Interview value: classic "stateless service behind a load balancer"
+- A well-understood shape: stateless services behind a load balancer
 
 ## Considered Options
 
@@ -73,9 +73,9 @@ prod. Diagnosis relies on structured logs, EMF metrics and `/healthz`.
   (target tracking on requests per target, not only CPU).
 - No interactive shell for debugging (by design).
 
-## Interview Angle
+## Summary
 
-> "Lambda is great until your hot path needs warm connections and single-digit
-> millisecond overhead; EKS is a lot of platform for four services. Fargate
-> gives me long-lived containers with per-task IAM and security groups, and no
-> nodes to patch."
+Lambda works well until the hot path needs warm connections and single-digit
+millisecond overhead; EKS is a lot of platform for four services. Fargate
+provides long-lived containers with per-task IAM and security groups, and no
+nodes to patch.

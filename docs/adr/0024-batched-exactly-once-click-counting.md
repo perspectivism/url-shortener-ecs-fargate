@@ -12,7 +12,7 @@ items. That is simple and exactly-once, but it has two problems that appear
 well below "web scale":
 
 - **Cost:** a transactional write costs 2 write units per item, so every click
-  costs about **12 WRU**. At the interview-scale average from
+  costs about **12 WRU**. At the reference-scale average from
   [design §2](../design.md#2-back-of-envelope-estimates) (4,000 clicks/s) that
   is about 48,000 WRU/s for analytics alone.
 - **Hot links:** every click on a link updates the same `DAY#date` item. A
@@ -20,8 +20,8 @@ well below "web scale":
   throttle its counting at a few hundred clicks per second. Redirects keep
   working by design ([ADR-0010](0010-async-click-pipeline.md)), but those clicks are delayed or dropped.
 
-"What happens when one link goes viral?" is the most likely interview
-follow-up, and the answer must not be "we stop counting it".
+"What happens when one link goes viral?" is the obvious scaling
+question, and the answer must not be "we stop counting it".
 
 ## Decision Drivers
 
@@ -130,13 +130,13 @@ Approved by the project owner on 2026-10-15; noted in GATES.md.
 - Worker code is more complex: batching, chunking, per-item cancellation reasons.
 - Dedupe markers still cost 2 WRU per click; going below that needs option 3 or 5.
 
-## Interview Angle
+## Summary
 
-> "A viral link means one hot counter. I keep the dedupe marker per click,
-> but sum the counter updates: one transaction carries up to ~90 clicks'
-> markers and a single `+90` on each counter. That's still exactly-once,
-> about 5× cheaper for hot traffic, and the hot item is written about 90×
-> less often. Past that, you pre-aggregate in a stream processor."
+A viral link means one hot counter. The dedupe marker stays per click,
+but the counter updates are summed: one transaction carries up to ~90 clicks'
+markers and a single `+90` on each counter. That's still exactly-once,
+about 5× cheaper for hot traffic, and the hot item is written about 90×
+less often. Past that, the next step is pre-aggregating in a stream processor.
 
 ## Future Work
 

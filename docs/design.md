@@ -1,7 +1,7 @@
 # 🏗️ URL Shortener — System Design
 
 > **Status:** v1.0 (M9). It covers the full design as built, in the same order
-> as the [README interview walkthrough](../README.md#-interview-walkthrough).
+> as the [README design walkthrough](../README.md#-design-walkthrough).
 > Every decision links to its ADR. Measured numbers come from the local stack;
 > cloud baselines are pending the first deployment ([GATES.md](../GATES.md)).
 
@@ -54,7 +54,7 @@ user accounts/UI, QR codes.
 
 ## 2. Back-of-envelope estimates
 
-**Interview scale:** 100 M new links per month, a 100:1 read:write ratio and 10× peaks.
+**Reference scale:** 100 M new links per month, a 100:1 read:write ratio and 10× peaks.
 
 | Quantity | Math | Result |
 | --- | --- | --- |
@@ -336,7 +336,7 @@ option 2 becomes necessary at scale anyway.
 - **Hot keys in the cache:** one viral code maps to one slot on one shard.
   A single key is limited to what one shard can serve, typically tens of
   thousands of reads per second (not measured here), which is enough for this
-  design's interview scale. Beyond that, the fix is a tiny
+  design's reference scale. Beyond that, the fix is a tiny
   in-process cache per task (1–5 s TTL) in front of Valkey, so a viral link
   costs one Valkey read per task per second. This is listed in §12, not built.
 
@@ -503,7 +503,7 @@ multi-region as future work).
 
 ## 12. Scaling to 100×
 
-At 100× the interview scale (≈ 400,000 redirects/s average):
+At 100× the reference scale (≈ 400,000 redirects/s average):
 
 | Area | Today | At 100× |
 | --- | --- | --- |

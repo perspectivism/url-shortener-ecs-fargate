@@ -7,15 +7,15 @@
 ## Context
 
 The URL Shortener exists to demonstrate production-grade AWS container
-architecture and to serve as a walkthrough for the "design a URL shortener"
-interview (SPEC §1). Every significant decision has to be explainable later:
+architecture and to work through the "design a URL shortener" problem end to
+end (SPEC §1). Every significant decision has to be explainable later:
 what we chose, what we rejected, and why. Decisions made in chat or commit
-messages get lost; decisions made silently cannot be defended in an interview.
+messages get lost; decisions made silently cannot be explained later.
 
 ## Decision Drivers
 
 - Decisions must be reviewable alongside the code that implements them.
-- Each decision should map to an interview talking point.
+- Each decision should be explainable in a sentence or two.
 - Records must be immutable once accepted, so history stays honest.
 
 ## Considered Options
@@ -32,8 +32,8 @@ indexed in [`docs/adr/README.md`](README.md), using [`template.md`](template.md)
 Project-specific rules:
 
 - Each ADR has the MADR sections (Status, Date, Context, Decision Drivers,
-  Considered Options, Decision, Consequences) plus an **Interview Angle**
-  section: the decision explained in one breath.
+  Considered Options, Decision, Consequences) plus a **Summary**
+  section: the decision and its trade-off in one or two sentences.
 - An ADR is written in the milestone where the decision is made, not at the end.
 - Accepted ADRs are never edited in substance; a changed decision gets a new ADR
   that supersedes the old one (the old one's status links to its successor).
@@ -46,7 +46,7 @@ Project-specific rules:
 ### Positive
 
 - The "why" lives next to the code and is versioned with it.
-- The README interview walkthrough can link each step to its ADR.
+- The README design walkthrough can link each step to its ADR.
 - Supersession keeps an honest trail of changed minds.
 
 ### Negative
@@ -54,7 +54,8 @@ Project-specific rules:
 - Writing overhead for every significant decision.
 - The index must be kept in sync (checked by the docs link check).
 
-## Interview Angle
+## Summary
 
-> "Every design decision is an ADR with the options I rejected and why, so I can
-> defend any choice in the system, and the trail shows when I changed my mind."
+Every significant design decision is an ADR with the rejected options and why,
+so any choice in the system can be traced to its reasons, and the trail shows
+when a decision changed.

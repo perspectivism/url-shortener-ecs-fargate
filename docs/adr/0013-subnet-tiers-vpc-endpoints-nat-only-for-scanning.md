@@ -93,11 +93,11 @@ Surprises recorded during implementation:
 - Single NAT in prod is an AZ-level single point of failure for scanning only;
   scanning fails open to `pending`, so redirects and creates are unaffected.
 
-## Interview Angle
+## Summary
 
-> "Three tiers: the hot path and the cache live in subnets with no internet
-> route at all and reach AWS through endpoints; only the two tasks that call
-> Safe Browsing get NAT egress, and in dev there's no NAT at all."
+Three tiers: the hot path and the cache live in subnets with no internet
+route at all and reach AWS through endpoints; only the two tasks that call
+Safe Browsing get NAT egress, and in dev there's no NAT at all.
 
 ## Future Work
 

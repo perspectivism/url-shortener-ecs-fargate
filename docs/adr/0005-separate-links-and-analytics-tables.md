@@ -42,8 +42,8 @@ throttle alarm.
 - Two tables to provision, back up and monitor.
 - No cross-table transactions — none are needed.
 
-## Interview Angle
+## Summary
 
-> "Reads that serve users and writes that count clicks have different scaling
-> and failure modes, so they live in different tables: a click storm can
-> throttle analytics, but it can never take down redirects."
+Reads that serve users and writes that count clicks have different scaling
+and failure modes, so they live in different tables: a click storm can
+throttle analytics, but it can never take down redirects.

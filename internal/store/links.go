@@ -455,7 +455,7 @@ func (s *Links) TouchAPIKey(ctx context.Context, hash, day string) error {
 // ScanRescan implements access pattern 8: a parallel Scan segment of the links
 // table for active links whose destination needs a (re)scan — scan_status
 // pending, or last scanned before cutoff. fn is called once per page. At
-// interview scale this becomes a GSI on next-scan date (SPEC §5.3).
+// reference scale this becomes a GSI on next-scan date (SPEC §5.3).
 func (s *Links) ScanRescan(ctx context.Context, segment, totalSegments int32, cutoff time.Time, fn func([]links.Link) error) error {
 	var start map[string]types.AttributeValue
 	for {

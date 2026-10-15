@@ -79,8 +79,8 @@ infra/
 - Bootstrap needs a one-time local-state step (scripted).
 - Root-module duplication across `envs/*` (deliberate, guarded by the parity check).
 
-## Interview Angle
+## Summary
 
-> "Modules are tested with mock providers, each environment is a thin root
-> that's provably identical to the other except for sizes, state lives in S3
-> with native lock files, and what gets applied is the exact saved plan someone approved."
+Modules are tested with mock providers, each environment is a thin root
+that's provably identical to the other except for sizes, state lives in S3
+with native lock files, and what gets applied is the exact saved plan someone approved.

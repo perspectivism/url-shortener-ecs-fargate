@@ -62,8 +62,8 @@ its direct successor. Recorded in `GATES.md` (M1).
 - Zero-day gap: a URL that becomes malicious after creation is caught only by
   the next nightly rescan (accepted risk in the threat model).
 
-## Interview Angle
+## Summary
 
-> "Every destination is checked against Safe Browsing, but a scanner outage
-> never blocks a create — the link goes in as 'pending' and the nightly job
-> rescans it. I used v5 because v4 is being shut down."
+Every destination is checked against Safe Browsing, but a scanner outage
+never blocks a create — the link goes in as 'pending' and the nightly job
+rescans it. It uses v5 because v4 is being shut down.

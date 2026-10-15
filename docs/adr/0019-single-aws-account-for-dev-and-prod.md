@@ -8,7 +8,7 @@
 
 AWS recommends separate accounts per environment (AWS Organizations, Control
 Tower): the account is the strongest isolation boundary for IAM, quotas, cost
-and blast radius. This project is a demo/interview deployment run by one owner
+and blast radius. This project is a demo deployment run by one owner
 in one existing account.
 
 ## Decision Drivers
@@ -50,12 +50,12 @@ Chosen option: **1 — one account**, with guardrails:
 - Shared account-level quotas (e.g. Fargate vCPU, ENIs) and a shared bill.
 - An account-level compromise affects both environments.
 
-## Interview Angle
+## Summary
 
-> "For a demo I use one account with per-environment roles that deny anything
-> tagged with the other environment; in production I'd move each environment
-> into its own account under Organizations, because the account is the only
-> hard isolation boundary in AWS."
+The demo uses one account with per-environment roles that deny anything
+tagged with the other environment; a production setup would move each environment
+into its own account under Organizations, because the account is the only
+hard isolation boundary in AWS.
 
 ## Future Work
 

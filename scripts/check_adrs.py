@@ -2,7 +2,7 @@
 """ADR completeness (SPEC §17.2, M9 gate).
 
 Every required ADR (0001-0020) exists; every ADR has status Accepted or
-"Superseded by" a linked ADR, the MADR sections plus "Interview Angle", and a
+"Superseded by" a linked ADR, the MADR sections plus "Summary", and a
 row in docs/adr/README.md.
 """
 
@@ -12,7 +12,7 @@ import sys
 
 ADR = pathlib.Path("docs/adr")
 REQUIRED = [f"{n:04d}" for n in range(1, 21)]
-SECTIONS = ["## Context", "## Decision Drivers", "## Considered Options", "## Decision", "## Consequences", "## Interview Angle"]
+SECTIONS = ["## Context", "## Decision Drivers", "## Considered Options", "## Decision", "## Consequences", "## Summary"]
 
 files = sorted(p for p in ADR.glob("[0-9][0-9][0-9][0-9]-*.md"))
 index = (ADR / "README.md").read_text()
@@ -35,4 +35,4 @@ for p in problems:
 if problems:
     print(f"FAIL: {len(problems)} ADR problem(s)", file=sys.stderr)
     sys.exit(1)
-print(f"ADRs OK: {len(files)} ADRs (all 20 required present), all Accepted, MADR sections + Interview Angle, all indexed")
+print(f"ADRs OK: {len(files)} ADRs (all 20 required present), all Accepted, MADR sections + Summary, all indexed")

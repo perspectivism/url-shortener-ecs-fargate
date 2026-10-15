@@ -52,11 +52,11 @@ DynamoDB TTL deletion timing. `HEAD` resolves identically but records no click.
   Valkey cache ([ADR-0008](0008-elasticache-serverless-valkey.md)) keeps the origin fast and DynamoDB cheap.
 - No browser caching for repeat visitors.
 
-## Interview Angle
+## Summary
 
-> "301 is cheaper but browsers cache it forever, so I'd lose analytics and the
-> ability to kill a phishing link. 302 with no-store means every click comes
-> back to me; the cache sits behind the edge instead of in it."
+301 is cheaper but browsers cache it forever, which would lose analytics and the
+ability to kill a phishing link. 302 with no-store means every click comes
+back to the origin; the cache sits behind the edge instead of in it.
 
 ## Future Work
 

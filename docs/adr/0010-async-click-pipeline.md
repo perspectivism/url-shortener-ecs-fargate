@@ -97,13 +97,13 @@ reaches the DLQ while the worker keeps processing.
   expired) — runbook says redrive within 3 days.
 - Each click costs a 2–6 item transaction (2× write units).
 
-## Interview Angle
+## Summary
 
-> "The redirect writes the 302 first and drops the click into a non-blocking
-> buffer that batches to SQS — analytics can never take redirects down. The
-> worker makes at-least-once delivery exactly-once with a dedupe marker in the
-> same DynamoDB transaction as the counters, and only deletes a message once
-> both the counters and the raw-event file are durable."
+The redirect writes the 302 first and drops the click into a non-blocking
+buffer that batches to SQS — analytics can never take redirects down. The
+worker makes at-least-once delivery exactly-once with a dedupe marker in the
+same DynamoDB transaction as the counters, and only deletes a message once
+both the counters and the raw-event file are durable.
 
 ## Future Work
 

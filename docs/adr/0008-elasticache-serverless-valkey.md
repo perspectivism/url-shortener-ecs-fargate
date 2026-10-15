@@ -76,8 +76,8 @@ Behaviour (`internal/links/resolver.go`, `internal/cache`):
 arbitrary keys, no counters, no HyperLogLog — and is node-based with a higher
 minimum cost.
 
-## Interview Angle
+## Summary
 
-> "Reads follow a power law, so cache-aside in Valkey makes the hot path a
-> memory lookup. I cache misses too, so scanning random codes can't hammer the
-> database, and the cache fails open — if it's down, redirects get slower, not broken."
+Reads follow a power law, so cache-aside in Valkey makes the hot path a
+memory lookup. Misses are cached too, so scanning random codes can't hammer the
+database, and the cache fails open — if it's down, redirects get slower, not broken.

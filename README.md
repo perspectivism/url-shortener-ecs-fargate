@@ -3,8 +3,8 @@
 [![ci](https://github.com/perspectivism/url-shortener-ecs-fargate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/perspectivism/url-shortener-ecs-fargate/actions/workflows/ci.yml)
 
 > A production-grade URL shortener with click analytics, built on AWS ECS
-> Fargate. It is organised as a ~20-minute walkthrough of the classic "design
-> a URL shortener" interview, and everything in it has been built and tested.
+> Fargate. Every design decision is recorded as an ADR, and everything
+> described here has been built and tested.
 
 ```mermaid
 flowchart LR
@@ -84,7 +84,7 @@ flowchart LR
 
 1. [✨ Features](#-features)
 2. [🚀 Quickstart](#-quickstart)
-3. [🎤 Interview Walkthrough](#-interview-walkthrough)
+3. [🧭 Design Walkthrough](#-design-walkthrough)
 4. [🏗️ Architecture deep dive](#️-architecture-deep-dive)
 5. [🔐 Security and secrets](#-security-and-secrets)
 6. [📈 Observability](#-observability)
@@ -218,96 +218,105 @@ and a reviewer approves that saved plan before it is applied
 ([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md),
 [ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
 
-## 🎤 Interview Walkthrough
+## 🧭 Design Walkthrough
 
-A 20-minute path through the system in the order an interview usually
-flows. Diagrams are in [docs/design.md](docs/design.md).
+Twelve steps from requirements and estimates, through the hot paths, to
+operations and scaling. Each step summarizes a decision, links to where it
+lives, states its trade-off and answers the questions it usually raises.
+Diagrams are in [docs/design.md](docs/design.md).
 
-### 1. Requirements and clarifying questions
+### 1. Requirements and scope
 
-- 🗣️ **Say:** "Shorten URLs, redirect fast, count clicks. I'd confirm read:write
-  ratio, custom aliases, expiry, analytics depth, abuse expectations, and whether
-  links can be edited — that last one decides 301 vs 302."
-- 🔍 **Show:** [design §1](docs/design.md#1-requirements-and-scope): functional requirements F1–F9 and non-functional N1–N8.
-- ⚖️ **Trade-off:** analytics plus editable links rule out permanent (301) redirects and edge caching.
-- ❓ **Follow-ups:**
+Shorten URLs, redirect fast, count clicks. The requirements that shape the
+design are the read:write ratio, custom aliases, expiry, analytics depth,
+abuse expectations, and whether links can be edited — that last one decides
+301 vs 302.
+
+- **See:** [design §1](docs/design.md#1-requirements-and-scope): functional requirements F1–F9 and non-functional N1–N8.
+- **Trade-off:** analytics plus editable links rule out permanent (301) redirects and edge caching.
+- **Common questions:**
   - *"Users and a UI?"* Out of scope: API keys per owner ([ADR-0015](docs/adr/0015-api-key-authentication.md)).
   - *"Custom domains?"* Future work; the edge supports one domain per environment.
-- 📎 [ADR-0001](docs/adr/0001-record-architecture-decisions.md)
+- **ADRs:** [ADR-0001](docs/adr/0001-record-architecture-decisions.md)
 
 ### 2. Back-of-envelope estimates
 
-- 🗣️ **Say:** "100 M links a month is about 40 creates/s and, at 100:1, about
-  4,000 redirects/s, with 10× peaks. Five years of links is about 3 TB.
-  62⁷ codes is 3.5 trillion, so 6–7 characters is plenty."
-- 🔍 **Show:** [design §2](docs/design.md#2-back-of-envelope-estimates), including
+At the reference scale, 100 M links a month is about 40 creates/s and, at
+100:1, about 4,000 redirects/s, with 10× peaks. Five years of links is about 3 TB.
+62⁷ codes is 3.5 trillion, so 6–7 characters is plenty.
+
+- **See:** [design §2](docs/design.md#2-back-of-envelope-estimates), including
   the analytics-write line: about 48,000 WCU/s at full scale if every click
   were its own transaction, which is why counter writes are batched (step 8).
-- ⚖️ **Trade-off:** the read path must be cached and stateless; analytics
+- **Trade-off:** the read path must be cached and stateless; analytics
   writes are the true hot spot.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"What is this deployment sized for?"* Tens of requests per second in dev.
     Locally, the redirect p99 was 9.7 ms under k6; cloud baselines are pending.
 
 ### 3. API design
 
-- 🗣️ **Say:** "Public `GET /{code}`. A versioned management API with Bearer
-  keys and scopes, problem+json errors, idempotent creates, and owner-scoped
-  everything: other owners get 404, not 403."
-- 🔍 **Show:** [`api/openapi.yaml`](api/openapi.yaml); handler tests validate
+Public `GET /{code}`. A versioned management API with Bearer
+keys and scopes, problem+json errors, idempotent creates, and owner-scoped
+everything: other owners get 404, not 403.
+
+- **See:** [`api/openapi.yaml`](api/openapi.yaml); handler tests validate
   every response against it ([`internal/contract`](internal/contract/contract.go)).
-- ⚖️ **Trade-off:** API keys instead of OAuth/Cognito. Simpler and
+- **Trade-off:** API keys instead of OAuth/Cognito. Simpler and
   machine-to-machine, but without user login.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"Idempotency?"* The key is claimed atomically in Valkey before the create,
     so concurrent retries on different tasks make one link (a repeat still in
     flight gets 409). Each claim carries a token, so a slow request whose
     claim expired can't clobber the next one's record. The response is stored
     per owner and key for 24 h, with a body fingerprint; a different body → 400
     ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md), [ADR-0031](docs/adr/0031-consistent-link-reads-and-owned-idempotency-claims.md)).
-- 📎 [ADR-0015](docs/adr/0015-api-key-authentication.md)
+- **ADRs:** [ADR-0015](docs/adr/0015-api-key-authentication.md)
 
 ### 4. Data model and why DynamoDB
 
-- 🗣️ **Say:** "Every hot access is a single-key lookup, so DynamoDB on-demand
-  gives single-digit-ms reads, no connection pools and no idle cost.
-  Conditional writes handle aliases. Analytics live in a second table with
-  different scaling and blast radius."
-- 🔍 **Show:** [design §4](docs/design.md#4-data-model), the `classDiagram` and access patterns.
-- ⚖️ **Trade-off:** no ad-hoc SQL, so analytics queries go to S3 + Athena instead.
-- ❓ **Follow-ups:**
+Every hot access is a single-key lookup, so DynamoDB on-demand
+gives single-digit-ms reads, no connection pools and no idle cost.
+Conditional writes handle aliases. Analytics live in a second table with
+different scaling and blast radius.
+
+- **See:** [design §4](docs/design.md#4-data-model), the `classDiagram` and access patterns.
+- **Trade-off:** no ad-hoc SQL, so analytics queries go to S3 + Athena instead.
+- **Common questions:**
   - *"Listing an owner's links?"* GSI `OWNER#id` / `CREATED#ts#code`.
   - *"Backups?"* PITR on both tables, and a restore-and-swap runbook.
-- 📎 [ADR-0004](docs/adr/0004-dynamodb-for-the-link-store.md), [ADR-0005](docs/adr/0005-separate-links-and-analytics-tables.md)
+- **ADRs:** [ADR-0004](docs/adr/0004-dynamodb-for-the-link-store.md), [ADR-0005](docs/adr/0005-separate-links-and-analytics-tables.md)
 
 ### 5. Short code generation
 
-- 🗣️ **Say:** "Each API task claims a block of 1,000 IDs with one atomic
-  counter update, then encodes them with Sqids. There is no coordination per
-  create and no collision between generated codes. Aliases use conditional writes."
-- 🔍 **Show:** [design §5](docs/design.md#5-short-code-generation); the
+Each API task claims a block of 1,000 IDs with one atomic
+counter update, then encodes them with Sqids. There is no coordination per
+create and no collision between generated codes. Aliases use conditional writes.
+
+- **See:** [design §5](docs/design.md#5-short-code-generation); the
   integration test creates 10,000 links through two instances with 0 duplicates.
-- ⚖️ **Trade-off:** codes are decodable (obfuscation, not security), and
+- **Trade-off:** codes are decodable (obfuscation, not security), and
   restarts leave ID gaps. Neither matters, because links are not secrets.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"Why not hash the URL?"* Collisions and truncation. Same URL, different owners.
   - *"Random codes?"* They need a collision check on every write.
   - *"Same long URL, same code?"* No. Each link has its own owner,
     analytics, expiry and disable state; sharing codes would leak that
     someone else shortened the URL. Retries use `Idempotency-Key`
     ([design §3](docs/design.md#3-api-design)).
-- 📎 [ADR-0006](docs/adr/0006-short-code-generation-range-allocation-and-sqids.md)
+- **ADRs:** [ADR-0006](docs/adr/0006-short-code-generation-range-allocation-and-sqids.md)
 
 ### 6. Redirect path, 301 vs 302
 
-- 🗣️ **Say:** "302 with `no-store`: browsers and CloudFront never cache it, so
-  every click reaches us and edits or disables apply immediately. Expiry is
-  checked on every request; the click event is sent after the response."
-- 🔍 **Show:** [design §6](docs/design.md#6-redirect-path) sequence diagram;
+302 with `no-store`: browsers and CloudFront never cache it, so
+every click reaches the origin and edits or disables apply immediately. Expiry is
+checked on every request; the click event is sent after the response.
+
+- **See:** [design §6](docs/design.md#6-redirect-path) sequence diagram;
   [`internal/redirect`](internal/redirect/redirect.go).
-- ⚖️ **Trade-off:** each click costs an origin round trip, and the edge saves no requests.
-- ❓ **Follow-ups:**
-  - *"When would you use 301?"* Immutable links where analytics don't matter.
+- **Trade-off:** each click costs an origin round trip, and the edge saves no requests.
+- **Common questions:**
+  - *"When is 301 the right choice?"* Immutable links where analytics don't matter.
   - *"HEAD requests?"* They resolve but are not counted.
   - *"Users far from us-east-1?"* With a nearby CloudFront edge, TLS ends
     there and a redirect costs one backbone round trip. This distribution
@@ -316,20 +325,21 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
     connection. `PriceClass_All` fixes that cheaply; beyond it come short
     edge caching, edge redirects and multi-region
     ([design §6](docs/design.md#6-redirect-path)).
-- 📎 [ADR-0007](docs/adr/0007-302-redirects-and-no-edge-caching.md)
+- **ADRs:** [ADR-0007](docs/adr/0007-302-redirects-and-no-edge-caching.md)
 
 ### 7. Caching
 
-- 🗣️ **Say:** "Cache-aside in Valkey: a positive entry for up to 1 h, a
-  negative entry for 60 s (code scans never reach DynamoDB), singleflight per
-  code against stampedes. Writes invalidate with a short fence that a racing
-  fill can't overwrite. Any cache error fails open to DynamoDB."
-- 🔍 **Show:** [design §7](docs/design.md#7-caching);
+Cache-aside in Valkey: a positive entry for up to 1 h, a
+negative entry for 60 s (code scans never reach DynamoDB), singleflight per
+code against stampedes. Writes invalidate with a short fence that a racing
+fill can't overwrite. Any cache error fails open to DynamoDB.
+
+- **See:** [design §7](docs/design.md#7-caching);
   [`internal/links/resolver.go`](internal/links/resolver.go).
-- ⚖️ **Trade-off:** if both invalidation attempts fail, a link can stay stale
+- **Trade-off:** if both invalidation attempts fail, a link can stay stale
   for up to 1 h. That case is alarmed (`cache-invalidation-failed`), and the
   runbook re-issues the change.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"Race between a cache fill and a disable?"* A fill that read the link
     before the disable could write it back after the `DEL`. So a write
     leaves a 10 s fence instead, fills are `SET NX`, and a fill slower than
@@ -344,22 +354,23 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
     ~5 M links.
   - *"Hot key?"* One viral code sits on one shard. Beyond tens of thousands
     of reads per second, add a 1–5 s in-process cache per task.
-- 📎 [ADR-0008](docs/adr/0008-elasticache-serverless-valkey.md), [ADR-0009](docs/adr/0009-valkey-iam-authentication.md)
+- **ADRs:** [ADR-0008](docs/adr/0008-elasticache-serverless-valkey.md), [ADR-0009](docs/adr/0009-valkey-iam-authentication.md)
 
 ### 8. Analytics pipeline
 
-- 🗣️ **Say:** "Redirect buffers click events and batches them to SQS without
-  blocking. The worker collects clicks for up to 2 seconds, then writes each
-  link's batch in one DynamoDB transaction: every click's dedupe marker plus
-  one summed update per counter. That's exactly-once counting from
-  at-least-once delivery. Raw events go to S3 for Athena, and HyperLogLog
-  gives unique visitors."
-- 🔍 **Show:** [design §8](docs/design.md#8-analytics-pipeline). Two
+Redirect buffers click events and batches them to SQS without
+blocking. The worker collects clicks for up to 2 seconds, then writes each
+link's batch in one DynamoDB transaction: every click's dedupe marker plus
+one summed update per counter. That's exactly-once counting from
+at-least-once delivery. Raw events go to S3 for Athena, and HyperLogLog
+gives unique visitors.
+
+- **See:** [design §8](docs/design.md#8-analytics-pipeline). Two
   integration tests back it: 500 replays change nothing, and 1,500 clicks
   on one link, each delivered twice, count exactly in batched writes.
-- ⚖️ **Trade-off:** under overload, clicks are dropped (and counted) rather
+- **Trade-off:** under overload, clicks are dropped (and counted) rather
   than slowing redirects. Counters lag by up to 2 s. Uniques are per day.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"A link goes viral?"* Its counters are written once per transaction (up
     to ~90 clicks), not once per click. That is ~5× cheaper and keeps the item
     far below DynamoDB's per-item limit ([ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md)).
@@ -370,35 +381,37 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
     requests, because WAF can't redact IPs ([ADR-0029](docs/adr/0029-edge-log-privacy.md)).
   - *"How long is data kept?"* Counters for 13 months (via TTL), including
     after a link is deleted; raw events 13 months in prod ([ADR-0025](docs/adr/0025-analytics-retention-13-months.md)).
-- 📎 [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md), [ADR-0025](docs/adr/0025-analytics-retention-13-months.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
+- **ADRs:** [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md), [ADR-0025](docs/adr/0025-analytics-retention-13-months.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
 
 ### 9. Abuse prevention and security
 
-- 🗣️ **Say:** "Phishing is the real abuse case. Safe Browsing runs at create
-  time and nightly, there is an admin kill switch, and WAF rate rules answer
-  429. Infrastructure has no public origin, least-privilege roles, endpoint
-  policies that block exfiltration, and secrets that never touch git or Terraform state."
-- 🔍 **Show:** [threat model](docs/threat-model.md) (65 STRIDE rows, none
+Phishing is the real abuse case. Safe Browsing runs at create
+time and nightly, there is an admin kill switch, and WAF rate rules answer
+429. Infrastructure has no public origin, least-privilege roles, endpoint
+policies that block exfiltration, and secrets that never touch git or Terraform state.
+
+- **See:** [threat model](docs/threat-model.md) (65 STRIDE rows, none
   open); [design §9](docs/design.md#9-abuse-prevention-and-security).
-- ⚖️ **Trade-off:** WAF may block some legitimate URLs (for example ones with IP
+- **Trade-off:** WAF may block some legitimate URLs (for example ones with IP
   literals); this is accepted and tuned from the WAF logs.
-- ❓ **Follow-ups:**
-  - *"SSRF?"* We never fetch destination URLs; only Safe Browsing sees them, as data.
+- **Common questions:**
+  - *"SSRF?"* The service never fetches destination URLs; only Safe Browsing sees them, as data.
   - *"Stolen API key?"* Keys are stored hashed and can be revoked within 60 s.
-- 📎 [ADR-0021](docs/adr/0021-url-safety-scanning-safe-browsing-v5.md), [ADR-0014](docs/adr/0014-secrets-management.md), [ADR-0023](docs/adr/0023-iam-review-data-perimeter-and-waf-tuning.md)
+- **ADRs:** [ADR-0021](docs/adr/0021-url-safety-scanning-safe-browsing-v5.md), [ADR-0014](docs/adr/0014-secrets-management.md), [ADR-0023](docs/adr/0023-iam-review-data-perimeter-and-waf-tuning.md)
 
 ### 10. Deployment architecture on AWS
 
-- 🗣️ **Say:** "CloudFront reaches an internal ALB through a VPC origin, so
-  there is nothing public to attack. Redirect, worker and cache sit in subnets
-  with no internet route; only api and nightly can reach Safe Browsing
-  through NAT. Services run on ECS Fargate ARM64, with Spot where
-  interruptions are harmless."
-- 🔍 **Show:** [design §10](docs/design.md#10-deployment-architecture);
+CloudFront reaches an internal ALB through a VPC origin, so
+there is nothing public to attack. Redirect, worker and cache sit in subnets
+with no internet route; only api and nightly can reach Safe Browsing
+through NAT. Services run on ECS Fargate ARM64, with Spot where
+interruptions are harmless.
+
+- **See:** [design §10](docs/design.md#10-deployment-architecture);
   [`infra/envs/dev`](infra/envs/dev/main.tf).
-- ⚖️ **Trade-off:** ALB + WAF fixed costs (~$30/month) even when idle.
+- **Trade-off:** ALB + WAF fixed costs (~$30/month) even when idle.
   Fargate instead of Lambda, for warm connection pools.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"Deploys?"* Images are built once and the same digests are promoted.
     Nothing deploys automatically: a human starts the workflow; for each
     environment a read-only job plans, and a reviewer approves that saved
@@ -418,33 +431,35 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
     - **Cross-region DR** would be global tables plus a second stack (RTO in
       minutes, about the cost of a second prod), or a backup "pilot light".
     - Details: [design §11](docs/design.md#11-operations).
-- 📎 [ADR-0003](docs/adr/0003-ecs-on-fargate.md), [ADR-0026](docs/adr/0026-release-versioning-with-tags.md), [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md), [ADR-0013](docs/adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0016](docs/adr/0016-terraform-layout-environments-s3-native-locking.md), [ADR-0017](docs/adr/0017-cicd-github-oidc-rolling-deploys.md), [ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md), [ADR-0020](docs/adr/0020-graviton-arm64-and-fargate-spot.md)
+- **ADRs:** [ADR-0003](docs/adr/0003-ecs-on-fargate.md), [ADR-0026](docs/adr/0026-release-versioning-with-tags.md), [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md), [ADR-0013](docs/adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0016](docs/adr/0016-terraform-layout-environments-s3-native-locking.md), [ADR-0017](docs/adr/0017-cicd-github-oidc-rolling-deploys.md), [ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md), [ADR-0020](docs/adr/0020-graviton-arm64-and-fargate-spot.md)
 
 ### 11. Operations: observability, SLOs, runbook
 
-- 🗣️ **Say:** "Services log JSON and emit EMF metrics through stdout, so
-  there is no agent. Alarms watch what users feel (5xx rate, p99, dropped
-  clicks, stale stats) and go to one encrypted topic. Every alarm has a
-  runbook section with a diagnosis flowchart, and a test keeps the two in sync."
-- 🔍 **Show:** [runbook](docs/runbook.md#3-alerts-and-escalation); [observability module](infra/modules/observability/main.tf).
-- ⚖️ **Trade-off:** CloudWatch is less flexible than Prometheus/Grafana, but
+Services log JSON and emit EMF metrics through stdout, so
+there is no agent. Alarms watch what users feel (5xx rate, p99, dropped
+clicks, stale stats) and go to one encrypted topic. Every alarm has a
+runbook section with a diagnosis flowchart, and a test keeps the two in sync.
+
+- **See:** [runbook](docs/runbook.md#3-alerts-and-escalation); [observability module](infra/modules/observability/main.tf).
+- **Trade-off:** CloudWatch is less flexible than Prometheus/Grafana, but
   needs no infrastructure.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"SLOs?"* N1 is ALB p99 < 100 ms; N2 is 99.9 % non-5xx, computed from ALB metrics.
   - *"Cost visibility?"* Budgets and anomaly detection run per environment, by tag.
-- 📎 [ADR-0022](docs/adr/0022-observability-alerting-and-cost-guardrails.md)
+- **ADRs:** [ADR-0022](docs/adr/0022-observability-alerting-and-cost-guardrails.md)
 
 ### 12. Scaling to 100× and what would change
 
-- 🗣️ **Say:** "At 400,000 redirects/s, per-request edge and ALB fees
-  dominate. I'd move hot redirects to CloudFront Functions + KeyValueStore,
-  stream clicks from real-time logs, and pre-aggregate analytics per minute
-  in a stream processor (today's batching still pays 2 write units per click
-  for dedupe markers). Then multi-region with global tables."
-- 🔍 **Show:** [design §12](docs/design.md#12-scaling-to-100).
-- ⚖️ **Trade-off:** edge redirects make analytics eventually consistent and
+At 400,000 redirects/s, per-request edge and ALB fees dominate. The next
+step is to move hot redirects to CloudFront Functions + KeyValueStore, stream
+clicks from real-time logs, and pre-aggregate analytics per minute
+in a stream processor (today's batching still pays 2 write units per click
+for dedupe markers). Then multi-region with global tables.
+
+- **See:** [design §12](docs/design.md#12-scaling-to-100).
+- **Trade-off:** edge redirects make analytics eventually consistent and
   disable checks slower.
-- ❓ **Follow-ups:**
+- **Common questions:**
   - *"What breaks first?"* ALB/WAF and CloudFront request fees, then the
     per-click dedupe markers. Hot links are already batched; the link store
     and cache scale horizontally.
@@ -527,7 +542,7 @@ docs/           design, ADRs, threat model, runbook, cost
 | Document | Contents |
 | --- | --- |
 | [docs/design.md](docs/design.md) | System design, in walkthrough order |
-| [docs/adr/](docs/adr/README.md) | 32 architecture decision records, each with an Interview Angle |
+| [docs/adr/](docs/adr/README.md) | 32 architecture decision records, each with a short summary |
 | [CHANGELOG.md](CHANGELOG.md) | Releases (tagged automatically when a commit reaches prod) |
 | [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, STRIDE, residual risks, suppressions |
 | [docs/runbook.md](docs/runbook.md) | SLOs, every alarm, deploy/rollback and operational procedures |

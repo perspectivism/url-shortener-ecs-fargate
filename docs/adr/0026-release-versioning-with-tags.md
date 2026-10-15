@@ -86,10 +86,10 @@ flowchart LR
   mapping lives in git and the release notes.
 - The prod job needs `contents: write` to create the release (scoped to that job).
 
-## Interview Angle
+## Summary
 
-> "Builds are identified by commit SHA, and that is what we deploy. A release
-> is just a name for a SHA that made it to prod: the pipeline tags it after the
-> prod smoke tests pass and records the image digests in the release notes.
-> Binaries carry `git describe` output, so logs tell you exactly which commit
-> is running."
+Builds are identified by commit SHA, and that is what gets deployed. A release
+is just a name for a SHA that made it to prod: the pipeline tags it after the
+prod smoke tests pass and records the image digests in the release notes.
+Binaries carry `git describe` output, so logs show exactly which commit
+is running.

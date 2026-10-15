@@ -1,6 +1,6 @@
 # 🔗 Snip — URL Shortener on ECS Fargate · Specification
 
-> **Status:** Source of truth for building Snip from an empty repository to a production-grade, interview-ready deployment on AWS.
+> **Status:** Source of truth for building Snip from an empty repository to a production-grade deployment on AWS.
 > **Audience:** A coding agent (Claude Code) and the human owner. Read [`AGENTS.md`](AGENTS.md) for *how* to work; this file defines *what* to build.
 > **Precedence:** SPEC.md > AGENTS.md > anything else. If something here is ambiguous, choose the more secure/conservative option and record it in an ADR.
 
@@ -32,15 +32,15 @@
 
 ## 1. 🎯 Purpose & Goals
 
-Snip is a URL shortener with click analytics, built to demonstrate **production-grade AWS container architecture** and to serve as a **walkthrough for the classic "design a URL shortener" system design interview**. Every major design decision maps to an interview talking point and is recorded as an ADR.
+Snip is a URL shortener with click analytics, built to demonstrate **production-grade AWS container architecture** and to work through the classic **"design a URL shortener" system design problem** end to end. Every major design decision is recorded as an ADR.
 
 ### Goals
 
 - ✅ Read-heavy architecture: separate **redirect** (hot read path) and **API** (write path) services on ECS Fargate.
-- ✅ Real implementations of interview concepts: range-allocated key generation, cache-aside with negative caching, 302 redirects, async event pipeline, idempotent consumers, abuse prevention.
+- ✅ Real implementations of the core system design concepts: range-allocated key generation, cache-aside with negative caching, 302 redirects, async event pipeline, idempotent consumers, abuse prevention.
 - ✅ AWS best practices everywhere: least privilege, no public origins, encryption at rest and in transit, no long-lived credentials, no secrets in git or Terraform state.
 - ✅ Everything as code in Terraform; everything reproducible from a fresh clone.
-- ✅ Documentation that teaches: README interview walkthrough, ADRs, STRIDE threat model, runbook, all with Mermaid diagrams.
+- ✅ Documentation that teaches: README design walkthrough, ADRs, STRIDE threat model, runbook, all with Mermaid diagrams.
 
 ### Non-goals
 
@@ -79,9 +79,9 @@ Snip is a URL shortener with click analytics, built to demonstrate **production-
 | N7 | Security | No public ingress except CloudFront; no long-lived AWS keys; no secrets in git/state |
 | N8 | Cost | Dev idles at a documented monthly cost; one-command teardown |
 
-### 2.3 Back-of-envelope (for the README interview section)
+### 2.3 Back-of-envelope (for the README design walkthrough)
 
-Present the math twice: **interview scale** (e.g., 100M new links/month, 100:1 read:write → ~40 creates/s and ~4k redirects/s average, ~10× peak) and **demo scale** (what this deployment is sized for). Include storage math (~500 bytes/link × 100M/month × 12 × 5 years) and code-space math (62⁷ ≈ 3.5 trillion). Show how the numbers justify the read/write split, caching, and DynamoDB.
+Present the math twice: **reference scale** (e.g., 100M new links/month, 100:1 read:write → ~40 creates/s and ~4k redirects/s average, ~10× peak) and **demo scale** (what this deployment is sized for). Include storage math (~500 bytes/link × 100M/month × 12 × 5 years) and code-space math (62⁷ ≈ 3.5 trillion). Show how the numbers justify the read/write split, caching, and DynamoDB.
 
 ---
 
@@ -711,8 +711,8 @@ Must include, in order, with a **table of contents**:
 3. 🚀 **Quickstart** — two tracks, copy-pasteable:
    - *Local in 5 minutes:* prerequisites, `cp .env.example .env`, `make up`, create API key, `curl` create + follow redirect + stats.
    - *Deploy to AWS:* prerequisites, `make bootstrap`, configure `example.tfvars` → `terraform.tfvars`, phase 1 apply, `make seed-secrets`, `make push-images`, phase 2 apply, smoke test, **teardown**.
-4. 🎤 **Interview Walkthrough** — the centerpiece. A numbered path to present the system in ~20 minutes, mirroring how the interview flows. Each step has: **🗣️ Say** (2–3 sentence talking point), **🔍 Show** (diagram or code link), **⚖️ Trade-off**, **❓ Likely follow-ups** (with short answers), and a link to the ADR.
-   1. Requirements & clarifying questions
+4. 🧭 **Design Walkthrough** — the centerpiece. A numbered path through the system in the order a design is usually reasoned about. Each step opens with a 2–3 sentence summary in plain prose, then has **See** (diagram or code link), **Trade-off**, **Common questions** (with short answers), and links to its ADRs.
+   1. Requirements & scope
    2. Back-of-envelope estimates (§2.3)
    3. API design
    4. Data model & why DynamoDB
@@ -735,7 +735,7 @@ Must include, in order, with a **table of contents**:
 
 ### 17.2 ADRs — `docs/adr/NNNN-kebab-title.md` (MADR format)
 
-Template sections: Status, Date, Context, Decision Drivers, Considered Options, Decision, Consequences (positive/negative), Interview Angle (how to explain it in one breath), optional Mermaid diagram. `docs/adr/README.md` is an index table. Required ADRs:
+Template sections: Status, Date, Context, Decision Drivers, Considered Options, Decision, Consequences (positive/negative), Summary (the decision and its main trade-off in one or two sentences), optional Mermaid diagram. `docs/adr/README.md` is an index table. Required ADRs:
 
 | # | Title |
 |---|-------|
@@ -778,7 +778,7 @@ Add ADRs for any further significant decision made during implementation.
 
 ### 17.5 Other docs
 
-- `docs/design.md` — the full system design write-up following the interview walkthrough order, with all diagrams.
+- `docs/design.md` — the full system design write-up following the design walkthrough order, with all diagrams.
 - `docs/cost.md` — monthly cost model per environment by component, with date and pricing source links; idle vs active; levers.
 - `GATES.md` — gate log (format in AGENTS.md).
 

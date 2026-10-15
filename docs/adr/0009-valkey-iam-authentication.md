@@ -66,8 +66,8 @@ sequenceDiagram
 - The cache user and user group must be modelled in Terraform.
 - A clock-skewed task would mint invalid tokens (Fargate keeps time in sync).
 
-## Interview Angle
+## Summary
 
-> "The cache has no password at all: each new connection presents a
-> 15-minute SigV4 token signed with the task's role, and the pool recycles
-> connections before AWS's 12-hour cut-off."
+The cache has no password at all: each new connection presents a
+15-minute SigV4 token signed with the task's role, and the pool recycles
+connections before AWS's 12-hour cut-off.

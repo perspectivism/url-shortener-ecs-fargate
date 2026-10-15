@@ -59,8 +59,8 @@ Chosen option: **1 — Go for all services** (Go 1.27, pinned in `go.mod`
   middleware) — kept small and fully tested in `internal/httpx`.
 - Generics/ergonomics are less expressive than Rust/Kotlin for some domain code.
 
-## Interview Angle
+## Summary
 
-> "Go gives me a static binary that starts in milliseconds and serves the hot
-> path from a quarter of a vCPU, with almost no dependencies to audit — the
-> standard library already does routing, structured logs and deadlines."
+Go produces a static binary that starts in milliseconds and serves the hot
+path from a quarter of a vCPU, with almost no dependencies to audit — the
+standard library already does routing, structured logs and deadlines.

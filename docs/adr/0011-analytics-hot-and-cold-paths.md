@@ -80,8 +80,8 @@ queries deduplicate by `event_id`.
   (millions of referrers) it would need pre-aggregated top-N items.
 - Uniques for days older than 8 days exist only if the nightly job ran.
 
-## Interview Angle
+## Summary
 
-> "Two paths: counters that are pre-aggregated at write time so the dashboard
-> is a few key lookups, and the raw events in S3 for anything ad hoc via
-> Athena. Uniques come from HyperLogLog — kilobytes instead of visitor lists."
+Two paths: counters that are pre-aggregated at write time so the dashboard
+is a few key lookups, and the raw events in S3 for anything ad hoc via
+Athena. Uniques come from HyperLogLog — kilobytes instead of visitor lists.

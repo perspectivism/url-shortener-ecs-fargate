@@ -71,8 +71,8 @@ flowchart LR
 - Rotating the salt resets continuity for the current day (runbook procedure).
 - Visitors behind one NAT with the same browser count once (accepted).
 
-## Interview Angle
+## Summary
 
-> "The IP never leaves memory: I keep a keyed, per-day HMAC of IP plus user
-> agent, which still counts uniques but can't be reversed or tracked across
-> days, and I keep only the referrer's host."
+The IP never leaves memory: only a keyed, per-day HMAC of IP plus user
+agent is kept, which still counts uniques but can't be reversed or tracked
+across days, and only the referrer's host is stored.

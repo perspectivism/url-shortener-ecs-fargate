@@ -72,10 +72,10 @@ shutdown budget (`stopTimeout` 30 s).
 - Dev redirect on Spot can briefly drop to zero tasks after a reclaim
   (accepted for dev; no SLO).
 
-## Interview Angle
+## Summary
 
-> "Everything is a static Go binary, so Graviton is just a GOARCH flag — about
-> 20 % cheaper for the same work. Spot only goes where an interruption is
-> harmless: the worker, because SQS redelivers and the consumer is idempotent,
-> and the nightly job, because it's re-runnable. The user-facing redirect path
-> stays on on-demand in prod."
+Everything is a static Go binary, so Graviton is just a GOARCH flag — about
+20 % cheaper for the same work. Spot only goes where an interruption is
+harmless: the worker, because SQS redelivers and the consumer is idempotent,
+and the nightly job, because it's re-runnable. The user-facing redirect path
+stays on on-demand in prod.

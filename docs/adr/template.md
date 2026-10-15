@@ -33,9 +33,10 @@ Chosen option: **Option X**, because …
 
 - …
 
-## Interview Angle
+## Summary
 
-> One breath: how to explain this decision and its trade-off in an interview.
+One or two sentences: the decision and its main trade-off, readable without
+the rest of the record.
 
 ## Future Work
 

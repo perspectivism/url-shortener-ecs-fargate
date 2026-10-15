@@ -63,8 +63,8 @@ but it puts every merged change in dev without a deliberate decision.
 - Branch protection and the environments' reviewer settings remain manual
   GitHub configuration (runbook §5.1); the check covers the workflow file only.
 
-## Interview Angle
+## Summary
 
-> "Merges run CI, never deploys. A human starts each deploy and approves each
-> environment, and a CI check fails if anyone adds an automatic trigger or
-> lets a job assume an AWS role outside an approval-gated environment."
+Merges run CI, never deploys. A human starts each deploy and approves each
+environment, and a CI check fails if anyone adds an automatic trigger or
+lets a job assume an AWS role outside an approval-gated environment.

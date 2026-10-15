@@ -95,13 +95,13 @@ Chosen option: **2**.
 - A new AWS-owned resource dependency (like ECR's layer bucket) would need an
   explicit exception.
 
-## Interview Angle
+## Summary
 
-> "Task roles say what a service *may* do. The VPC endpoint policies also
-> say *whose* resources it may touch. Even with stolen credentials from another
-> account, a compromised container can't push data out through our
-> endpoints. Every wildcard in IAM is justified in a comment, and CI fails
-> on one that isn't."
+Task roles say what a service *may* do. The VPC endpoint policies also
+say *whose* resources it may touch. Even with stolen credentials from another
+account, a compromised container can't push data out through these
+endpoints. Every wildcard in IAM is justified in a comment, and CI fails
+on one that isn't.
 
 ## Future Work
 
