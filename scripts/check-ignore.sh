@@ -34,6 +34,11 @@ must_ignore=(
   coverage/unit.out
   tests/load/results/summary.json
   .docker/config.json
+  .aws/credentials
+  .aws/config
+  .codex/config.toml
+  .agents/state.json
+  .claude/settings.local.json
   server.pem
   private.key
 )

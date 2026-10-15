@@ -53,3 +53,9 @@ infra/modules/**/.terraform.lock.hcl
 
 # Registry credentials (docker/crane login) if a tool is ever pointed at the repo.
 .docker/
+
+# Local credentials and agent state; never committed.
+.aws/
+.codex/
+.agents/
+.claude/settings.local.json
