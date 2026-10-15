@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
 )
 
 func TestIAMToken(t *testing.T) {

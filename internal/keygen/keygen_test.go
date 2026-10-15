@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links/linkstest"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links/linkstest"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 const alphabet = "k3G7QAe51FCsPW92uEOyq4Bg6Sp8YzVTmnU0liwDdHXLajZrfxNhobJIRcMvKt"

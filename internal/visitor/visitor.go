@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/config"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/config"
 )
 
 // MaxDimensionLen caps stored dimension values (SPEC §5.2).

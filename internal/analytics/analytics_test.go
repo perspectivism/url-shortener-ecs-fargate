@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/events"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links/linkstest"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/store"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/events"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links/linkstest"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/store"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 func TestClassify(t *testing.T) {

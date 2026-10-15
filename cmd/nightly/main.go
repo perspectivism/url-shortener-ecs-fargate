@@ -11,13 +11,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/config"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/nightly"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/platform"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/scanner"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/store"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/cache"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/config"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/nightly"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/platform"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/scanner"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/store"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }

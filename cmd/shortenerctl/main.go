@@ -11,8 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/ctl"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/platform"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/ctl"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/platform"
 )
 
 func main() {

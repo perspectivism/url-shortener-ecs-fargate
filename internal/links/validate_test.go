@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
 )
 
 func TestNormalizeURL(t *testing.T) {

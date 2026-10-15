@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 // SQSSender is the subset of the SQS client the producer uses.

@@ -32,7 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/contract"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/contract"
 )
 
 // runAlphabet returns a freshly shuffled Sqids alphabet. Each run creates new

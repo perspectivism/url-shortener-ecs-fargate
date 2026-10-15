@@ -25,7 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/events"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/events"
 )
 
 // --- helpers -------------------------------------------------------------

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
 )
 
 // Repo is an in-memory links.Repository with injectable failures.

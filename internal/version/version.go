@@ -2,7 +2,7 @@
 package version
 
 // value is overridden at build time with
-// -ldflags "-X github.com/shortener/url-shortener-ecs-fargate/internal/version.value=<git sha>".
+// -ldflags "-X github.com/perspectivism/url-shortener-ecs-fargate/internal/version.value=<git sha>".
 var value = "dev"
 
 // String returns the build version (the git SHA for release builds).

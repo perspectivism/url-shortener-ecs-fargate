@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/httpx"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/cache"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/httpx"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 // apiTime is the wire format for timestamps (RFC 3339, UTC, milliseconds).

@@ -9,11 +9,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/events"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/httpx"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/visitor"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/events"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/httpx"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/visitor"
 )
 
 // Resolver resolves codes (links.Resolver).

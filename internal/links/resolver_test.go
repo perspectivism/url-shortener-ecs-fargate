@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links/linkstest"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links/linkstest"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 func newResolver(repo links.LinkReader, cache links.ResolverCache, m *linkstest.Counter, now time.Time) *links.Resolver {

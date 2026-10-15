@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/analytics"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/httpx"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/analytics"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/httpx"
 )
 
 // StatsService builds link statistics (analytics.Service).

@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/scanner"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/scanner"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 // Repository persists links (implemented by store.Links).

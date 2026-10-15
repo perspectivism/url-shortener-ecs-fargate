@@ -18,10 +18,10 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/config"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/version"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/cache"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/config"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/version"
 )
 
 // Telemetry bundles the logger and metrics emitter for a service.

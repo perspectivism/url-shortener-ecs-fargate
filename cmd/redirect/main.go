@@ -12,15 +12,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/config"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/events"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/httpx"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/platform"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/redirect"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/store"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/visitor"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/cache"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/config"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/events"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/httpx"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/platform"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/redirect"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/store"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/visitor"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }

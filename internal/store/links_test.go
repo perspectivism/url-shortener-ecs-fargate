@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/auth"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/auth"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
 )
 
 // fakeDB records requests and returns canned responses. Real DynamoDB

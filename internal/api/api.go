@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/auth"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/httpx"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/ratelimit"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/auth"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/cache"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/httpx"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/ratelimit"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 // LinkService is the link use-case layer (links.Service).

@@ -13,10 +13,10 @@ import (
 
 	"github.com/mileusna/useragent"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/events"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/store"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/visitor"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/events"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/store"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/visitor"
 )
 
 // Dimension types (sort-key component DIM#{type}#...).

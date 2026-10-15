@@ -43,7 +43,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   - SPEC.md TOC anchor for §12 was broken; fixed with owner approval (only change to SPEC.md).
   - SPEC.md and AGENTS.md are excluded from markdownlint (style-only findings: MD032/MD060; formatting edits not authorized). Both are still covered by the link check and Mermaid render check.
   - gitleaks path allowlist for the gitignored `./.tools/` toolchain directory (listed in the threat model suppressions table).
-  - Go module path `github.com/shortener/url-shortener-ecs-fargate` (GitHub org unknown; path is not resolved remotely).
+  - Go module path `github.com/shortener/url-shortener-ecs-fargate` (GitHub org unknown; path is not resolved remotely). **Changed 2026-10-15** to `github.com/perspectivism/url-shortener-ecs-fargate`, the owner's account; the placeholder named an organization the owner does not control.
   - Headless Chrome for Mermaid runs with `--no-sandbox` (trusted repo input; Ubuntu 24.04 blocks the sandbox's user namespaces). On Linux hosts missing NSS/ALSA libraries, `make tools` extracts them into `.tools/lib` without root.
 - **Pending (if closed-local):** none (no cloud checks in M0)
 

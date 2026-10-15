@@ -1,4 +1,4 @@
-module github.com/shortener/url-shortener-ecs-fargate
+module github.com/perspectivism/url-shortener-ecs-fargate
 
 go 1.27.0
 

@@ -14,7 +14,7 @@ import (
 
 	"github.com/sqids/sqids-go"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 // MinLength is the minimum generated code length (SPEC §6).

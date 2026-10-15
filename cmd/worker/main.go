@@ -17,12 +17,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/config"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/httpx"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/platform"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/store"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/worker"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/cache"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/config"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/httpx"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/platform"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/store"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/worker"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }

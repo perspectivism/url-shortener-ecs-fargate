@@ -14,15 +14,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/analytics"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/auth"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/cache"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/contract"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/httpx"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links/linkstest"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/ratelimit"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/scanner"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/analytics"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/auth"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/cache"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/contract"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/httpx"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links/linkstest"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/ratelimit"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/scanner"
 )
 
 var t0 = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)

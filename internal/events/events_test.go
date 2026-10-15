@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/links/linkstest"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/telemetry"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links/linkstest"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/telemetry"
 )
 
 func ev(i int) ClickEvent {

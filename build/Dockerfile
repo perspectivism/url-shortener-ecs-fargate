@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     test -n "$SERVICE" && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath \
-      -ldflags "-s -w -buildid= -X github.com/shortener/url-shortener-ecs-fargate/internal/version.value=${VERSION}" \
+      -ldflags "-s -w -buildid= -X github.com/perspectivism/url-shortener-ecs-fargate/internal/version.value=${VERSION}" \
       -o /out/app ./cmd/${SERVICE}
 
 # Distroless static: no shell, no package manager, CA certificates and tzdata
@@ -30,7 +30,7 @@ ARG SERVICE
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="shortener-${SERVICE}" \
       org.opencontainers.image.revision="${VERSION}" \
-      org.opencontainers.image.source="https://github.com/shortener/url-shortener-ecs-fargate"
+      org.opencontainers.image.source="https://github.com/perspectivism/url-shortener-ecs-fargate"
 COPY --from=build /out/app /app
 USER 65532:65532
 EXPOSE 8080

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/auth"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/localdev"
-	"github.com/shortener/url-shortener-ecs-fargate/internal/store"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/auth"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/localdev"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/store"
 )
 
 // DynamoDB is what ctl needs from DynamoDB (data plane + table creation).

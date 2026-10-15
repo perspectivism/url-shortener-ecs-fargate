@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shortener/url-shortener-ecs-fargate/internal/config"
+	"github.com/perspectivism/url-shortener-ecs-fargate/internal/config"
 )
 
 // Verdict is the scan result for one URL.
