@@ -451,9 +451,13 @@ except the smoke API keys.
 
    Record the printed `key_hash`; you need it to revoke the key.
 
-4. **Branch protection** (Settings → Rules → new branch ruleset on `main`):
+4. **Branch protection** (Settings → Rules → new branch ruleset on `main`,
+   enforcement status **Active**, **no bypass entries**):
 
-   - require a pull request with 1 approval and code-owner review;
+   - require a pull request with **0 required approvals** and **without**
+     required code-owner review: GitHub never lets authors approve their own
+     pull requests, so with a single maintainer any required approval would
+     block every merge;
    - require these status checks: `go · lint, unit, vuln, secrets`,
      `integration (compose emulators)`, `images · build arm64, non-root, Trivy`,
      `terraform · fmt, validate, tflint, checkov, Trivy, test`,
@@ -461,7 +465,13 @@ except the smoke API keys.
      `terraform plan (dev)`;
    - block force pushes and deletions.
 
-   [`.github/CODEOWNERS`](../.github/CODEOWNERS) assigns every path to `@perspectivism`.
+   Every change still goes through a pull request with green CI. A bypass
+   entry would skip all of this ruleset's rules, including the required
+   checks. [`.github/CODEOWNERS`](../.github/CODEOWNERS) assigns every path to
+   `@perspectivism`. When a second maintainer joins, give them write access
+   and add them to CODEOWNERS first, then require 1 approval and code-owner
+   review. The dev and prod deploy approvals (step 2) are separate and stay
+   as they are.
 
 ### 5.2 Deploy
 

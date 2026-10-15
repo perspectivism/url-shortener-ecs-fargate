@@ -1,4 +1,2 @@
-# Every change needs the owner's review (branch protection: require code owner review).
-*                   @perspectivism
-/infra/             @perspectivism
-/.github/           @perspectivism
+# Default owner for all repository files.
+* @perspectivism

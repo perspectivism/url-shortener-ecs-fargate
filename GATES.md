@@ -319,9 +319,9 @@ one-line change; nothing below has been deployed.
 - **Pending (closed-local):**
   1. 👤 Push the repository to GitHub (`perspectivism/url-shortener-ecs-fargate`).
   2. 👤 Configure repository variables, environments `dev`/`prod` (deployment branch `main`; required reviewers on **both**; prevent self-review off while you are the only reviewer, see [ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md)), environment variables and the `SMOKE_API_KEY` secrets — exact commands in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin).
-  3. 👤 Branch ruleset on `main`: PR + 1 approval + code owners; required checks (the five `ci` jobs and `terraform plan (dev)`); block force pushes.
+  3. 👤 Branch ruleset on `main` (active, no bypass entries): PR with 0 required approvals and no required code-owner review while there is a single maintainer; required checks (the five `ci` jobs and `terraform plan (dev)`); block force pushes and deletions. Updated 2026-10-15; see [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin) step 4.
   4. 👤 Open a PR: `ci` green, plan comment posted by `terraform plan (dev)`.
-  5. ☁️ Merge: `deploy` builds once, dev pushes with verified digests, applies, smoke passes; the `prod` job **waits for approval** (the agent does not approve).
+  5. ☁️ Deploy (updated 2026-10-15): merging runs CI only. Start **Actions → deploy → Run workflow** on `main` ([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md)): `deploy` builds once; `plan-dev` prints the saved plan; after the `dev` approval, dev applies exactly that plan with verified image digests and smoke passes; `plan-prod` follows and the `prod` job **waits for approval** (the agent does not approve) ([ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
 
 ## M9 📚 Docs & final review — 🟡 closed-local
 
