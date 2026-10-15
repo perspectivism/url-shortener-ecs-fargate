@@ -211,7 +211,8 @@ var workerBase = map[string]string{
 
 func TestLoadWorker(t *testing.T) {
 	c, err := LoadWorker(env(workerBase))
-	if err != nil || c.FlushInterval != time.Minute || c.MaxBatchBytes != 5<<20 || c.Concurrency != 10 || c.WaitSeconds != 20 || c.Service != "worker" {
+	if err != nil || c.FlushInterval != time.Minute || c.MaxBatchBytes != 5<<20 || c.Concurrency != 10 || c.WaitSeconds != 20 || c.Service != "worker" ||
+		c.CountInterval != 2*time.Second || c.CountMaxEvents != 1000 {
 		t.Fatalf("worker: %+v %v", c, err)
 	}
 	_, err = LoadWorker(env(merge(workerBase, map[string]string{"WORKER_FLUSH_INTERVAL": "2m", "EVENTS_BUCKET": "<unset>", "WORKER_WAIT_SECONDS": "x"})))
@@ -220,6 +221,11 @@ func TestLoadWorker(t *testing.T) {
 	assertErr(t, err, []string{"WORKER_WAIT_SECONDS must be between 0 and 20"})
 	if c, _ := LoadWorker(env(merge(workerBase, map[string]string{"WORKER_WAIT_SECONDS": "1"}))); c.WaitSeconds != 1 {
 		t.Fatal("WORKER_WAIT_SECONDS override")
+	}
+	_, err = LoadWorker(env(merge(workerBase, map[string]string{"WORKER_COUNT_INTERVAL": "31s", "WORKER_COUNT_MAX_EVENTS": "5"})))
+	assertErr(t, err, []string{"WORKER_COUNT_INTERVAL must be at most 30s", "WORKER_COUNT_MAX_EVENTS must be between 10 and 10000"})
+	if c, _ := LoadWorker(env(merge(workerBase, map[string]string{"WORKER_COUNT_INTERVAL": "500ms", "WORKER_COUNT_MAX_EVENTS": "50"}))); c.CountInterval != 500*time.Millisecond || c.CountMaxEvents != 50 {
+		t.Fatal("WORKER_COUNT_* overrides")
 	}
 }
 

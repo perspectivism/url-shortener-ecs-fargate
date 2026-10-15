@@ -200,6 +200,11 @@ aws ecs describe-services --cluster $p --services $p-worker --query 'services[0]
 ```
 
 **Remediation:** fix the worker failure; raise `worker_max_count` for sustained backlog (§5.10).
+Counting is batched (ADR-0024): the dashboard's "Click pipeline" widget shows
+counting transactions next to processed events, so a falling ratio of clicks
+per transaction means each write carries fewer clicks. Rising `WorkerRetries`
+means counting transactions are failing (conflicts on a hot counter between
+workers, or throttling) and the clicks wait for redelivery.
 **Escalation:** age > 1 h in prod → owner; messages older than 3 days lose dedupe protection (§5.8).
 
 ### 4.5 `dlq`
@@ -256,7 +261,9 @@ flowchart TD
     c -->|yes| leg{"Legitimate traffic?"}
     leg -->|yes| raise["Raise the cap (§5.10)"]
     leg -->|no| abuse["Abuse: WAF rate limits, revoke key (§5.5)"]
-    c -->|no| hot["Hot partition: one viral link?<br/>Cache should absorb (4.8)"]
+    c -->|no| hot{"Hot partition"}
+    hot -->|"links table"| viral["One viral link: the cache<br/>should absorb reads (4.8)"]
+    hot -->|"analytics table"| batch["Counter writes are batched per link<br/>(ADR-0024); check WorkerRetries and<br/>raise WORKER_COUNT_MAX_EVENTS"]
 ```
 
 ```bash

@@ -27,6 +27,8 @@ import (
 
 type fakeQueue struct {
 	mu        sync.Mutex
+	onReceive func(call int) // test hook, called before each receive
+	calls     int
 	batches   [][]sqstypes.Message
 	deleted   []string
 	visible0  []string
@@ -37,8 +39,12 @@ type fakeQueue struct {
 }
 
 func (q *fakeQueue) ReceiveMessage(ctx context.Context, _ *sqs.ReceiveMessageInput, _ ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error) {
+	if q.onReceive != nil {
+		q.onReceive(q.calls)
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.calls++
 	if q.recvErr != nil {
 		err := q.recvErr
 		q.recvErr = nil
@@ -96,22 +102,38 @@ func (f *fakeS3) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*
 }
 
 type fakeRecorder struct {
-	mu   sync.Mutex
-	seen map[string]bool
-	err  error
+	mu      sync.Mutex
+	seen    map[string]bool
+	err     error           // every click fails
+	fail    map[string]bool // these event IDs fail
+	batches []int           // size of every RecordClicks call
 }
 
-func (f *fakeRecorder) RecordClick(_ context.Context, c store.Click) (bool, error) {
+func (f *fakeRecorder) RecordClicks(_ context.Context, clicks []store.Click) (store.BatchResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.err != nil {
-		return false, f.err
+	f.batches = append(f.batches, len(clicks))
+	res := store.BatchResult{Results: make([]store.ClickResult, len(clicks))}
+	var err error
+	for i, c := range clicks {
+		switch {
+		case f.err != nil:
+			res.Results[i], err = store.Failed, f.err
+		case f.fail[c.EventID]:
+			res.Results[i], err = store.Failed, errors.New("throttled")
+		case f.seen[c.EventID]:
+			res.Results[i] = store.Duplicate
+		default:
+			f.seen[c.EventID] = true
+			res.Results[i] = store.Recorded
+		}
 	}
-	if f.seen[c.EventID] {
-		return true, nil
+	for _, r := range res.Results {
+		if r == store.Recorded {
+			res.Transactions = 1
+		}
 	}
-	f.seen[c.EventID] = true
-	return false, nil
+	return res, err
 }
 
 type fakeUniques struct {
@@ -222,7 +244,8 @@ func TestNoDeleteBeforeFlushAndFlushOnInterval(t *testing.T) {
 	r.q.batches = [][]sqstypes.Message{{msg("1", event("e1", 10, false))}}
 	ctx := context.Background()
 	out, _ := r.q.ReceiveMessage(ctx, nil)
-	r.w.process(ctx, out.Messages)
+	r.w.decode(ctx, out.Messages)
+	r.w.count(ctx)
 	if r.w.due() || len(r.q.deleted) != 0 {
 		t.Fatal("must not flush or delete before the interval")
 	}
@@ -240,7 +263,8 @@ func TestNoDeleteBeforeFlushAndFlushOnInterval(t *testing.T) {
 	r2.w.o.MaxBatchBytes = 10
 	r2.q.batches = [][]sqstypes.Message{{msg("1", event("e1", 10, false))}}
 	out, _ = r2.q.ReceiveMessage(ctx, nil)
-	r2.w.process(ctx, out.Messages)
+	r2.w.decode(ctx, out.Messages)
+	r2.w.count(ctx)
 	if !r2.w.due() {
 		t.Fatal("flush is due when the buffer exceeds the byte limit")
 	}
@@ -329,11 +353,91 @@ func TestHealthyAndDefaults(t *testing.T) {
 	if r.w.Healthy(2 * time.Minute) {
 		t.Fatal("stalled loop is unhealthy")
 	}
-	if r.w.o.FlushInterval != time.Minute || r.w.o.MaxBatchBytes != 5<<20 {
+	if r.w.o.FlushInterval != time.Minute || r.w.o.MaxBatchBytes != 5<<20 || r.w.o.CountInterval != 2*time.Second || r.w.o.CountMaxEvents != 1000 {
 		t.Fatal("defaults")
 	}
 	w := New(Options{}, Deps{Now: time.Now})
 	if w.o.Concurrency != 10 {
 		t.Fatal("default concurrency")
+	}
+}
+
+func batchOf(prefix string, n int) []sqstypes.Message {
+	out := make([]sqstypes.Message, n)
+	for i := range out {
+		id := fmt.Sprintf("%s%d", prefix, i)
+		out[i] = msg(id, event("e-"+id, 10, false))
+	}
+	return out
+}
+
+// Events from several receives are counted together: one RecordClicks call
+// (and here one transaction) for 30 clicks, not 30.
+func TestCountsAcrossReceivesInOneBatch(t *testing.T) {
+	r := newRig(time.Hour)
+	r.w.o.CountMaxEvents = 25
+	r.q.batches = [][]sqstypes.Message{batchOf("a", 10), batchOf("b", 10), batchOf("c", 10)}
+	r.run(t)
+	if len(r.rec.batches) != 1 || r.rec.batches[0] != 30 {
+		t.Fatalf("RecordClicks batches = %v, want one batch of 30", r.rec.batches)
+	}
+	if r.m.Get(WorkerCountTransactions) != 1 || r.m.Get(telemetry.WorkerEventsProcessed) != 30 || len(r.q.deleted) != 30 {
+		t.Fatalf("transactions=%v processed=%v deleted=%d", r.m.Get(WorkerCountTransactions), r.m.Get(telemetry.WorkerEventsProcessed), len(r.q.deleted))
+	}
+}
+
+// The counting window closes after CountInterval or as soon as a long poll
+// comes back empty, so stats stay fresh when traffic stops.
+func TestCountWindowIntervalAndQuietQueue(t *testing.T) {
+	r := newRig(time.Hour)
+	ctx := context.Background()
+	r.w.decode(ctx, batchOf("a", 2))
+	if r.w.countDue() {
+		t.Fatal("a fresh window is not due")
+	}
+	*r.now = r.now.Add(2 * time.Second)
+	if !r.w.countDue() {
+		t.Fatal("window is due after CountInterval")
+	}
+
+	r = newRig(time.Hour)
+	r.q.batches = [][]sqstypes.Message{batchOf("a", 3), {}, batchOf("b", 1)}
+	var countedBeforeThirdReceive int
+	r.q.onReceive = func(call int) {
+		if call == 2 {
+			r.rec.mu.Lock()
+			countedBeforeThirdReceive = len(r.rec.batches)
+			r.rec.mu.Unlock()
+		}
+	}
+	r.run(t)
+	if countedBeforeThirdReceive != 1 || len(r.rec.batches) != 2 {
+		t.Fatalf("empty poll must count the window at once: before=%d batches=%v", countedBeforeThirdReceive, r.rec.batches)
+	}
+}
+
+// One failed click in a batch is left for redelivery; the rest are deleted.
+func TestPartialCountingFailure(t *testing.T) {
+	r := newRig(time.Hour)
+	r.rec.fail = map[string]bool{"e-a1": true}
+	r.q.batches = [][]sqstypes.Message{batchOf("a", 3)}
+	r.run(t)
+	if r.m.Get(WorkerRetries) != 1 || r.m.Get(telemetry.WorkerEventsProcessed) != 2 || len(r.q.deleted) != 2 {
+		t.Fatalf("retries=%v processed=%v deleted=%v", r.m.Get(WorkerRetries), r.m.Get(telemetry.WorkerEventsProcessed), r.q.deleted)
+	}
+	for _, d := range r.q.deleted {
+		if d == "rh-a1" {
+			t.Fatal("the failed click must not be deleted")
+		}
+	}
+	if r.u.adds != 2 {
+		t.Fatalf("uniques for failed clicks are added on redelivery, not now: adds=%d", r.u.adds)
+	}
+}
+
+// A recorder that returns no results at all (hard failure) fails every click.
+func TestRecorderWithoutResults(t *testing.T) {
+	if got := result(store.BatchResult{}, 0); got != store.Failed {
+		t.Fatalf("missing result = %v, want Failed", got)
 	}
 }

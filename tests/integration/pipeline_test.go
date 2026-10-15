@@ -273,6 +273,86 @@ func TestPipelineExactCounts(t *testing.T) {
 	}
 }
 
+// TestHotLinkBatchedCounting (ADR-0024): 1,500 clicks on ONE link, every
+// event delivered twice (in opposite orders, so copies land both inside one
+// counting window and across windows). Counts must be exact, every replay must
+// be detected as a duplicate, and the counters must be written in batches —
+// at least 10 clicks per counting transaction on average, not one each.
+func TestHotLinkBatchedCounting(t *testing.T) {
+	const clicks, visitors = 1500, 40
+	code := str(createLink(t, "alice", `{"url":"https://example.com/hot"}`), "code")
+	txBefore := emfSum(t, env.worker, "WorkerCountTransactions")
+	dupBefore := emfSum(t, env.worker, "WorkerDuplicateEvents")
+
+	now := time.Now().UTC()
+	countries := []string{"US", "DE", "JP"}
+	refs := []string{"news.ycombinator.com", "t.co", ""}
+	bodies := make([]string, clicks)
+	for i := range bodies {
+		b, _ := json.Marshal(events.ClickEvent{
+			V: events.Version, EventID: fmt.Sprintf("hot-%s-%d", code, i), Code: code, TS: now,
+			Visitor: fmt.Sprintf("hot-visitor-%d", i%visitors), ReferrerHost: refs[i%3], Country: countries[i%3],
+			UserAgent: fmt.Sprintf(firefox, i%visitors),
+		})
+		bodies[i] = string(b)
+	}
+	send := func(order []int) {
+		ctx := context.Background()
+		for start := 0; start < len(order); start += 10 {
+			var entries []sqstypes.SendMessageBatchRequestEntry
+			for n, i := range order[start:min(start+10, len(order))] {
+				entries = append(entries, sqstypes.SendMessageBatchRequestEntry{Id: aws.String(fmt.Sprint(n)), MessageBody: aws.String(bodies[i])})
+			}
+			if _, err := env.sqs.SendMessageBatch(ctx, &sqs.SendMessageBatchInput{QueueUrl: aws.String(env.queueURL), Entries: entries}); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}
+	forward, backward := make([]int, clicks), make([]int, clicks)
+	for i := range forward {
+		forward[i], backward[i] = i, clicks-1-i
+	}
+	var wg sync.WaitGroup
+	for _, order := range [][]int{forward, backward} {
+		wg.Add(1)
+		go func() { defer wg.Done(); send(order) }()
+	}
+	wg.Wait()
+
+	waitStats(t, "alice", code, clicks, 0)
+	waitFor(t, 60*time.Second, "every replay to be consumed", func() (bool, string) {
+		d := emfSum(t, env.worker, "WorkerDuplicateEvents") - dupBefore
+		return queueDrained(t, env.queueURL) && d >= clicks, fmt.Sprintf("duplicates so far: %.0f", d)
+	})
+	s := stats(t, "alice", code)
+	if num(s, "total_clicks") != clicks {
+		t.Fatalf("total_clicks = %d after replays, want %d", num(s, "total_clicks"), clicks)
+	}
+	daily, _ := s["daily"].([]any)
+	today, _ := daily[len(daily)-1].(map[string]any)
+	if num(today, "uniques") != visitors {
+		t.Errorf("uniques = %d, want %d", num(today, "uniques"), visitors)
+	}
+	top, _ := s["top"].(map[string]any)
+	for _, dim := range []string{"referrers", "countries", "devices", "browsers"} {
+		entries, _ := top[dim].([]any)
+		var sum int64
+		for _, e := range entries {
+			m, _ := e.(map[string]any)
+			sum += num(m, "clicks")
+		}
+		if sum != clicks {
+			t.Errorf("%s sums to %d, want %d", dim, sum, clicks)
+		}
+	}
+	tx := emfSum(t, env.worker, "WorkerCountTransactions") - txBefore
+	t.Logf("%d clicks (+%d replays) counted in %.0f transactions: %.1f clicks per counting write", clicks, clicks, tx, clicks/tx)
+	if tx <= 0 || tx*10 > clicks {
+		t.Fatalf("%.0f counting transactions for %d clicks: want batching of at least 10 clicks per transaction", tx, clicks)
+	}
+}
+
 // TestSIGTERMFlushesBufferedClicks: events buffered in the producer (60 s
 // flush interval) are sent when the redirect service receives SIGTERM.
 func TestSIGTERMFlushesBufferedClicks(t *testing.T) {

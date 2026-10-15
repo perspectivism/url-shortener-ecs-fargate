@@ -15,7 +15,7 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0007](0007-302-redirects-and-no-edge-caching.md) | 302 redirects and no edge caching of redirects | Accepted |
 | [0008](0008-elasticache-serverless-valkey.md) | ElastiCache Serverless Valkey (vs DAX, vs no cache) | Accepted |
 | [0009](0009-valkey-iam-authentication.md) | Valkey IAM authentication (no passwords) | Accepted |
-| [0010](0010-async-click-pipeline.md) | Async click pipeline: SQS, best-effort enqueue, idempotent worker | Accepted |
+| [0010](0010-async-click-pipeline.md) | Async click pipeline: SQS, best-effort enqueue, idempotent worker | Accepted (counting transaction superseded by 0024) |
 | [0011](0011-analytics-hot-and-cold-paths.md) | Analytics hot/cold paths: DynamoDB counters + S3/Athena | Accepted |
 | [0012](0012-cloudfront-vpc-origin-internal-alb-waf.md) | CloudFront VPC origin with internal ALB and WAF | Accepted |
 | [0013](0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md) | Subnet tiers, VPC endpoints, NAT only for URL scanning | Accepted |
@@ -29,3 +29,4 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0021](0021-url-safety-scanning-safe-browsing-v5.md) | URL safety scanning with Safe Browsing v5 `urls:search` | Accepted |
 | [0022](0022-observability-alerting-and-cost-guardrails.md) | Observability, alerting and cost guardrails | Accepted |
 | [0023](0023-iam-review-data-perimeter-and-waf-tuning.md) | IAM review, VPC endpoint data perimeter and WAF tuning | Accepted |
+| [0024](0024-batched-exactly-once-click-counting.md) | Batched exactly-once click counting | Accepted |

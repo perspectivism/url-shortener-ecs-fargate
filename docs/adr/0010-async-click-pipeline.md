@@ -1,6 +1,6 @@
 # ADR-0010: Async click pipeline — SQS, best-effort enqueue, idempotent worker
 
-- **Status:** Accepted
+- **Status:** Accepted (per-event counting transaction superseded by [ADR-0024](0024-batched-exactly-once-click-counting.md))
 - **Date:** 2026-10-14
 - **Deciders:** project owner, coding agent
 

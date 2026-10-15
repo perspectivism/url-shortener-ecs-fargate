@@ -59,14 +59,15 @@ user accounts/UI, QR codes.
 | Code space | 62⁷ | ≈ 3.5 trillion; 6 chars (62⁶ ≈ 57 billion) last ~47 years at 100 M/month |
 | Hot cache | ~20 % of active links × ~200 B per entry | single-digit GB |
 | Click events | 4,000/s × ~400 B | ≈ 140 GB/day raw, ~15 GB gzipped to S3 |
-| Analytics writes | 4,000 clicks/s × 6 items, transactional (2×) | ≈ 48,000 WCU/s, the first thing to redesign at scale (§12) |
+| Analytics writes | 4,000 clicks/s × 6 items, transactional (2×), if counted one click at a time | ≈ 48,000 WCU/s, so counter writes are batched (§8): ≈ 2.2 WRU per click for hot links instead of 12 |
 
 **What the numbers justify:**
 
 - Reads dominate, so the read path is separate and cached.
 - Lookups are single-key at thousands per second with no joins, which suits DynamoDB.
 - Analytics writes outnumber link writes by orders of magnitude, so they go
-  to their own table behind a queue.
+  to their own table behind a queue, and counter updates are batched so a
+  viral link never hammers a single item.
 
 **Demo scale (this deployment):** dev runs one redirect task on Spot and
 handles tens of requests per second. The k6 baseline runs 15 redirects per
@@ -146,7 +147,8 @@ Access patterns:
 - **Allocate IDs:** `UpdateItem ADD` on the counter.
 - **List an owner's links:** `gsi1` query.
 - **Stats:** one query on `STATS#code` over a date range.
-- **Count a click:** `TransactWriteItems` (dedupe marker plus counters).
+- **Count clicks:** `TransactWriteItems` per batch: each click's dedupe
+  marker plus one summed update per counter (≤ 100 items, ADR-0024).
 
 ## 5. Short code generation
 
@@ -234,9 +236,9 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     R["redirect"] -->|"SendMessageBatch<br/>≤ 1 s or 10 msgs"| Q[["SQS click-events"]]
-    Q -->|"long poll"| W["worker (0..n, Spot)"]
+    Q -->|"long poll"| W["worker (0..n, Spot)<br/>2 s counting window"]
     Q -.->|"5 receives"| DLQ[["DLQ (14 d)"]]
-    W -->|"TransactWriteItems<br/>dedupe marker + counters"| A[("analytics")]
+    W -->|"TransactWriteItems per batch<br/>markers + summed counters"| A[("analytics")]
     W -->|"PFADD"| H[("Valkey HLL")]
     W -->|"gzip NDJSON<br/>60 s or 5 MB"| S3[("S3 events/dt=/hour=")]
     S3 --> ATH["Athena<br/>partition projection"]
@@ -245,10 +247,22 @@ flowchart LR
 ```
 
 - **At-least-once in, exactly-once counted**
-  ([ADR-0010](adr/0010-async-click-pipeline.md)): each event carries a
-  UUIDv7. The dedupe marker `EVENT#id` is written with
-  `attribute_not_exists` in the same transaction as the counters, so a
-  redelivered message cancels the transaction and is counted as a duplicate.
+  ([ADR-0010](adr/0010-async-click-pipeline.md),
+  [ADR-0024](adr/0024-batched-exactly-once-click-counting.md)):
+  - each event carries a UUIDv7;
+  - the worker collects events for up to 2 s (or 1,000 events), groups them
+    by link and commits them in transactions of up to 100 items;
+  - each transaction holds every click's dedupe marker `EVENT#id`
+    (`attribute_not_exists`) plus **one** summed `ADD` per counter item;
+  - a transaction commits exactly the clicks whose markers it creates. When
+    DynamoDB reports existing markers, those clicks are duplicates, and the
+    transaction is rebuilt without them and retried.
+- **Hot links:** a viral link's counters are written once per transaction
+  (up to ~90 clicks), not once per click. That is ≈ 2.2 instead of 12 write
+  units per click, and the item stays far below DynamoDB's ~1,000 writes/s
+  per-item limit. The integration test sends 1,500 clicks on one link, each
+  delivered twice, and asserts exact counts with batched writes. Locally it
+  measured 17 transactions, 88 clicks per counting write.
 - **Deletion only after success:** a message is deleted only after
   DynamoDB **and** the S3 flush succeed. Poison messages go to the DLQ;
   the worker never crashes on them.
@@ -349,7 +363,7 @@ At 100× the interview scale (≈ 400,000 redirects/s average):
 | Redirect compute | Fargate tasks behind an ALB | Still works (hundreds of tasks), but per-request ALB, WAF and CloudFront fees dominate. Serve hot links **at the edge** with CloudFront Functions + KeyValueStore, and collect clicks from CloudFront real-time logs |
 | Cache | Valkey Serverless | Add a tiny in-process LRU (1–5 s) per task for the hottest codes; Valkey stays the shared tier |
 | Link store | DynamoDB on-demand | Unchanged; DynamoDB scales horizontally, and the cache absorbs hot keys |
-| Analytics writes | One transaction per click (≈ 12 WCU) | Pre-aggregate per code/minute/dimension in the worker (or Kinesis + Flink) and write counters in batches, with dedupe over a window, not per item |
+| Analytics writes | Batched transactions: per-click markers + summed counters (≈ 2.2 WRU per hot-link click, 12 worst case; ADR-0024) | The markers (2 WRU per click) become the floor; drop to per-minute aggregation in a stream processor (Kinesis + Flink) with windowed dedupe |
 | Queue | SQS standard | SQS still scales; Kinesis if replay or ordering is needed |
 | IDs | 1,000-ID blocks | Larger blocks (10,000+); the single counter item handles a few updates per second |
 | Regions | one | DynamoDB global tables for links, a regional cache and pipeline per region, latency-based routing |

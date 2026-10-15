@@ -120,6 +120,7 @@ locals {
           [local.ns, "ClickEventsDropped", "Service", "redirect", { label = "dropped" }],
           [local.ns, "WorkerEventsProcessed", "Service", "worker", { label = "processed" }],
           [local.ns, "WorkerDuplicateEvents", "Service", "worker", { label = "duplicates" }],
+          [local.ns, "WorkerCountTransactions", "Service", "worker", { label = "counting transactions (batched, ADR-0024)" }],
         ]
       }
     },

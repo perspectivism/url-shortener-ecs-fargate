@@ -243,6 +243,8 @@ type Worker struct {
 	MaxBatchBytes  int
 	Concurrency    int
 	WaitSeconds    int32
+	CountInterval  time.Duration
+	CountMaxEvents int
 }
 
 // LoadWorker parses and validates the worker configuration.
@@ -262,6 +264,14 @@ func LoadWorker(lookup LookupFunc) (Worker, error) {
 	c.MaxBatchBytes = r.Int("WORKER_MAX_BATCH_BYTES", 5<<20, 1<<10, 64<<20)
 	c.Concurrency = r.Int("WORKER_CONCURRENCY", 10, 1, 100)
 	c.WaitSeconds = r.Int32("WORKER_WAIT_SECONDS", 20, 0, 20)
+	// Batched counting (ADR-0024): how long decoded clicks may wait for their
+	// counting transaction, and the batch size that commits earlier. Stats
+	// freshness is bounded by this window (SPEC N4: 2 minutes).
+	c.CountInterval = r.Duration("WORKER_COUNT_INTERVAL", 2*time.Second)
+	if c.CountInterval > 30*time.Second {
+		r.Problemf("WORKER_COUNT_INTERVAL must be at most 30s (stats freshness and the 120s visibility timeout)")
+	}
+	c.CountMaxEvents = r.Int("WORKER_COUNT_MAX_EVENTS", 1000, 10, 10000)
 	return c, r.Err()
 }
 

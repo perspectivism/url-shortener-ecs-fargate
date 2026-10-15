@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -64,58 +66,240 @@ func nv(n int64) types.AttributeValue {
 	return &types.AttributeValueMemberN{Value: strconv.FormatInt(n, 10)}
 }
 
-func (a *Analytics) addOne(pk, sk, attr string) types.TransactWriteItem {
-	return types.TransactWriteItem{Update: &types.Update{
-		TableName:                 &a.table,
-		Key:                       map[string]types.AttributeValue{"pk": sv(pk), "sk": sv(sk)},
-		UpdateExpression:          aws.String("ADD #a :one"),
-		ExpressionAttributeNames:  map[string]string{"#a": attr},
-		ExpressionAttributeValues: map[string]types.AttributeValue{":one": nv(1)},
-	}}
+// MaxTransactItems is DynamoDB's limit on items per TransactWriteItems call.
+const MaxTransactItems = 100
+
+// ClickResult is the outcome of recording one click.
+type ClickResult int
+
+// Click outcomes.
+const (
+	Recorded  ClickResult = iota // counted now
+	Duplicate                    // already counted earlier (dedupe marker existed)
+	Failed                       // not counted; the caller must let SQS redeliver it
+)
+
+// BatchResult reports RecordClicks outcomes in input order.
+type BatchResult struct {
+	Results      []ClickResult
+	Transactions int // committed transactions (counter writes are amortized over these)
 }
 
-// RecordClick implements access pattern 6: one transaction that inserts the
-// dedupe marker EVENT#{id} (only if absent) and increments the day and
-// dimension counters. A duplicate event cancels the whole transaction, so
-// counts are exactly-once even though SQS is at-least-once. It returns
-// duplicate=true when the marker already existed.
-func (a *Analytics) RecordClick(ctx context.Context, c Click) (duplicate bool, err error) {
-	pk := statsPK(c.Code)
-	items := []types.TransactWriteItem{{Put: &types.Put{
-		TableName: &a.table,
-		Item: map[string]types.AttributeValue{
-			"pk":  sv("EVENT#" + c.EventID),
-			"sk":  sv(skMeta),
-			"ttl": nv(c.TS.Add(DedupeTTL).Unix()),
-		},
-		ConditionExpression: aws.String("attribute_not_exists(pk)"),
-	}}}
+type counterKey struct{ sk, attr string }
+
+// chunk is one transaction's worth of clicks for a single link: their dedupe
+// markers plus the summed counter deltas. Deltas are grouped per item (sort
+// key) because a transaction may contain only ONE operation per item: a
+// day's human and bot clicks share the DAY# item and become one update with
+// two ADD clauses.
+type chunk struct {
+	code   string
+	idx    []int    // indices into the input
+	items  []string // counter sort keys, in first-use order
+	deltas map[string]map[string]int64
+}
+
+func counterKeys(c Click) []counterKey {
 	if c.IsBot {
-		items = append(items, a.addOne(pk, "DAY#"+c.Date, "bot_clicks"))
-	} else {
-		items = append(items,
-			a.addOne(pk, "DAY#"+c.Date, "clicks"),
-			a.addOne(pk, dimSK("ref", c.Date, c.Referrer), "clicks"),
-			a.addOne(pk, dimSK("country", c.Date, c.Country), "clicks"),
-			a.addOne(pk, dimSK("device", c.Date, c.Device), "clicks"),
-			a.addOne(pk, dimSK("browser", c.Date, c.Browser), "clicks"),
-		)
+		return []counterKey{{"DAY#" + c.Date, "bot_clicks"}}
 	}
-	ctx, cancel := context.WithTimeout(ctx, a.timeout)
+	return []counterKey{
+		{"DAY#" + c.Date, "clicks"},
+		{dimSK("ref", c.Date, c.Referrer), "clicks"},
+		{dimSK("country", c.Date, c.Country), "clicks"},
+		{dimSK("device", c.Date, c.Device), "clicks"},
+		{dimSK("browser", c.Date, c.Browser), "clicks"},
+	}
+}
+
+// fits reports whether click c can join ch without exceeding the item limit.
+func (ch *chunk) fits(c Click) bool {
+	n := len(ch.idx) + len(ch.items) + 1
+	for _, k := range counterKeys(c) {
+		if _, ok := ch.deltas[k.sk]; !ok {
+			n++
+		}
+	}
+	return n <= MaxTransactItems
+}
+
+func (ch *chunk) add(i int, c Click) {
+	ch.idx = append(ch.idx, i)
+	for _, k := range counterKeys(c) {
+		attrs, ok := ch.deltas[k.sk]
+		if !ok {
+			attrs = map[string]int64{}
+			ch.deltas[k.sk] = attrs
+			ch.items = append(ch.items, k.sk)
+		}
+		attrs[k.attr]++
+	}
+}
+
+func newChunk(code string) *chunk { return &chunk{code: code, deltas: map[string]map[string]int64{}} }
+
+// RecordClicks implements access pattern 6 for a batch of clicks (ADR-0024).
+// Clicks are grouped by link and packed into transactions of at most 100
+// items. Each transaction holds the dedupe marker EVENT#{id} of every click it
+// counts (put only if absent) plus ONE update per counter item carrying the
+// summed delta. A transaction therefore commits exactly the clicks whose
+// markers it creates: counting stays exactly-once although SQS is
+// at-least-once, while a hot link's counters are written once per transaction
+// instead of once per click.
+//
+// If DynamoDB cancels a transaction because some markers already exist, those
+// clicks are duplicates; the transaction is rebuilt without them and retried.
+// Conflicts and throttling are retried with backoff; clicks still not committed
+// are reported as Failed (and err is set) so the caller leaves them for
+// redelivery.
+func (a *Analytics) RecordClicks(ctx context.Context, clicks []Click) (BatchResult, error) {
+	res := BatchResult{Results: make([]ClickResult, len(clicks))}
+	seen := make(map[string]bool, len(clicks))
+	byCode := map[string][]int{}
+	var codes []string
+	for i, c := range clicks {
+		if seen[c.EventID] { // the same event twice in one batch
+			res.Results[i] = Duplicate
+			continue
+		}
+		seen[c.EventID] = true
+		if _, ok := byCode[c.Code]; !ok {
+			codes = append(codes, c.Code)
+		}
+		byCode[c.Code] = append(byCode[c.Code], i)
+	}
+	var firstErr error
+	for _, code := range codes {
+		ch := newChunk(code)
+		for _, i := range byCode[code] {
+			if !ch.fits(clicks[i]) {
+				firstErr = errors.Join(firstErr, a.commit(ctx, clicks, ch, &res))
+				ch = newChunk(code)
+			}
+			ch.add(i, clicks[i])
+		}
+		firstErr = errors.Join(firstErr, a.commit(ctx, clicks, ch, &res))
+	}
+	if firstErr != nil {
+		return res, fmt.Errorf("record clicks: %w", firstErr)
+	}
+	return res, nil
+}
+
+// commitAttempts bounds retries of conflicts and throttling per transaction.
+const commitAttempts = 4
+
+func (a *Analytics) commit(ctx context.Context, clicks []Click, ch *chunk, res *BatchResult) error {
+	var lastErr error
+	for attempt := 0; attempt < commitAttempts && len(ch.idx) > 0; {
+		err := a.transact(ctx, clicks, ch)
+		if err == nil {
+			for _, i := range ch.idx {
+				res.Results[i] = Recorded
+			}
+			res.Transactions++
+			return nil
+		}
+		lastErr = err
+		dups, retryable := cancellation(err, len(ch.idx))
+		if len(dups) > 0 {
+			// Rebuild without the duplicates (does not use up an attempt:
+			// every round removes at least one click).
+			next := newChunk(ch.code)
+			for n, i := range ch.idx {
+				if dups[n] {
+					res.Results[i] = Duplicate
+				} else {
+					next.add(i, clicks[i])
+				}
+			}
+			ch = next
+			continue
+		}
+		if !retryable {
+			break
+		}
+		attempt++
+		if attempt < commitAttempts {
+			select {
+			case <-ctx.Done():
+				attempt = commitAttempts
+			case <-time.After(time.Duration(attempt*attempt) * 25 * time.Millisecond):
+			}
+		}
+	}
+	if len(ch.idx) == 0 {
+		return nil
+	}
+	for _, i := range ch.idx {
+		res.Results[i] = Failed
+	}
+	return lastErr
+}
+
+func (a *Analytics) transact(ctx context.Context, clicks []Click, ch *chunk) error {
+	pk := statsPK(ch.code)
+	items := make([]types.TransactWriteItem, 0, len(ch.idx)+len(ch.items))
+	for _, i := range ch.idx {
+		c := clicks[i]
+		items = append(items, types.TransactWriteItem{Put: &types.Put{
+			TableName: &a.table,
+			Item: map[string]types.AttributeValue{
+				"pk":  sv("EVENT#" + c.EventID),
+				"sk":  sv(skMeta),
+				"ttl": nv(c.TS.Add(DedupeTTL).Unix()),
+			},
+			ConditionExpression: aws.String("attribute_not_exists(pk)"),
+		}})
+	}
+	for _, sk := range ch.items {
+		attrs := slices.Sorted(maps.Keys(ch.deltas[sk]))
+		names := make(map[string]string, len(attrs))
+		values := make(map[string]types.AttributeValue, len(attrs))
+		clauses := make([]string, len(attrs))
+		for n, attr := range attrs {
+			names[fmt.Sprintf("#a%d", n)] = attr
+			values[fmt.Sprintf(":n%d", n)] = nv(ch.deltas[sk][attr])
+			clauses[n] = fmt.Sprintf("#a%d :n%d", n, n)
+		}
+		items = append(items, types.TransactWriteItem{Update: &types.Update{
+			TableName:                 &a.table,
+			Key:                       map[string]types.AttributeValue{"pk": sv(pk), "sk": sv(sk)},
+			UpdateExpression:          aws.String("ADD " + strings.Join(clauses, ", ")),
+			ExpressionAttributeNames:  names,
+			ExpressionAttributeValues: values,
+		}})
+	}
+	tctx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 	// No ClientRequestToken: within its 10-minute window DynamoDB would report a
 	// replayed transaction as success, hiding duplicates from the
-	// WorkerDuplicateEvents metric. The EVENT# condition alone guarantees
-	// exactly-once counting (a lost-response SDK retry surfaces as a duplicate).
-	_, err = a.db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
-	if err == nil {
-		return false, nil
-	}
+	// WorkerDuplicateEvents metric. The EVENT# conditions alone guarantee
+	// exactly-once counting (a lost-response SDK retry surfaces as duplicates).
+	_, err := a.db.TransactWriteItems(tctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
+	return err
+}
+
+// cancellation inspects a TransactionCanceledException: which of the first
+// nMarkers items (the dedupe markers) failed their condition, and whether the
+// rest of the cancellation is worth retrying (conflict, throttling).
+func cancellation(err error, nMarkers int) (dups map[int]bool, retryable bool) {
 	var tce *types.TransactionCanceledException
-	if errors.As(err, &tce) && len(tce.CancellationReasons) > 0 && aws.ToString(tce.CancellationReasons[0].Code) == "ConditionalCheckFailed" {
-		return true, nil
+	if !errors.As(err, &tce) {
+		return nil, false
 	}
-	return false, fmt.Errorf("record click: %w", err)
+	for n, r := range tce.CancellationReasons {
+		switch code := aws.ToString(r.Code); {
+		case code == "ConditionalCheckFailed" && n < nMarkers:
+			if dups == nil {
+				dups = map[int]bool{}
+			}
+			dups[n] = true
+		case code == "TransactionConflict" || code == "ThrottlingError" || code == "ProvisionedThroughputExceeded":
+			retryable = true
+		}
+	}
+	return dups, retryable
 }
 
 func dimSK(dim, date, value string) string { return "DIM#" + dim + "#" + date + "#" + value }

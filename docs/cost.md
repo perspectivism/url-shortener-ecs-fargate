@@ -97,7 +97,7 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 | ALB + WAF fixed fees | unavoidable with the CloudFront VPC-origin design (ADR-0012) |
 | Fargate | ARM64 (−20 % vs x86), Spot for worker/nightly (and dev redirect), worker scales to zero |
 | Valkey | Serverless Valkey 100 MB minimum (vs 1 GB for Redis OSS); storage/ECPU caps |
-| DynamoDB | on-demand with maximum-throughput caps per table |
+| DynamoDB | on-demand with maximum-throughput caps per table; click counters written in batches per link (≈ 2.2 instead of 12 write units per click for hot links, [ADR-0024](adr/0024-batched-exactly-once-click-counting.md)) |
 | Athena | per-query scan cap (1 GB) and partition projection |
 | Logs | 14-day retention in dev, 90 days in prod; S3 lifecycle expiry |
 | Container Insights | `container_insights` on the cluster module: the running-tasks alarms need it (`DesiredTaskCount`/`RunningTaskCount`); turning it off saves ≈ $15–30/month per environment but loses those alarms |

@@ -100,7 +100,8 @@ flowchart LR
   - idempotent creates (`Idempotency-Key`).
 - **Analytics:**
   - clicks over time, unique visitors, top referrer hosts, countries, devices and browsers;
-  - counted exactly once from an at-least-once queue.
+  - counted exactly once from an at-least-once queue, in batched writes so a
+    viral link doesn't throttle its own counters.
 - **Safety:**
   - Google Safe Browsing checks at create time and nightly;
   - admin kill switch;
@@ -226,7 +227,8 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   4,000 redirects/s, with 10× peaks. Five years of links is about 3 TB.
   62⁷ codes is 3.5 trillion, so 6–7 characters is plenty."
 - 🔍 **Show:** [design §2](docs/design.md#2-back-of-envelope-estimates), including
-  the analytics-write line: about 48,000 WCU/s at full scale, if every click is a transaction.
+  the analytics-write line: about 48,000 WCU/s at full scale if every click
+  were its own transaction, which is why counter writes are batched (step 8).
 - ⚖️ **Trade-off:** the read path must be cached and stateless; analytics
   writes are the true hot spot.
 - ❓ **Follow-ups:**
@@ -306,18 +308,24 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 ### 8. Analytics pipeline
 
 - 🗣️ **Say:** "Redirect buffers click events and batches them to SQS without
-  blocking. The worker writes a dedupe marker and the counters in one
-  DynamoDB transaction, which gives exactly-once counting from at-least-once
-  delivery. Raw events go to S3 for Athena, and HyperLogLog gives unique visitors."
-- 🔍 **Show:** [design §8](docs/design.md#8-analytics-pipeline); the
-  integration test proves 500 replays change nothing.
+  blocking. The worker collects clicks for up to 2 seconds, then writes each
+  link's batch in one DynamoDB transaction: every click's dedupe marker plus
+  one summed update per counter. That's exactly-once counting from
+  at-least-once delivery. Raw events go to S3 for Athena, and HyperLogLog
+  gives unique visitors."
+- 🔍 **Show:** [design §8](docs/design.md#8-analytics-pipeline). Two
+  integration tests back it: 500 replays change nothing, and 1,500 clicks
+  on one link, each delivered twice, count exactly in batched writes.
 - ⚖️ **Trade-off:** under overload, clicks are dropped (and counted) rather
-  than slowing redirects. Uniques are per day.
+  than slowing redirects. Counters lag by up to 2 s. Uniques are per day.
 - ❓ **Follow-ups:**
+  - *"A link goes viral?"* Its counters are written once per transaction (up
+    to ~90 clicks), not once per click. That is ~5× cheaper and keeps the item
+    far below DynamoDB's per-item limit (ADR-0024).
   - *"Poison messages?"* They go to the DLQ after 5 receives; the redrive
     runbook works within 3 days.
   - *"Privacy?"* Per-day HMAC visitor IDs; raw IPs are never stored.
-- 📎 [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
+- 📎 [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
 
 ### 9. Abuse prevention and security
 
@@ -369,14 +377,16 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 
 - 🗣️ **Say:** "At 400,000 redirects/s, per-request edge and ALB fees
   dominate. I'd move hot redirects to CloudFront Functions + KeyValueStore,
-  stream clicks from real-time logs, and pre-aggregate analytics instead of
-  running one transaction per click. Then multi-region with global tables."
+  stream clicks from real-time logs, and pre-aggregate analytics per minute
+  in a stream processor (today's batching still pays 2 write units per click
+  for dedupe markers). Then multi-region with global tables."
 - 🔍 **Show:** [design §12](docs/design.md#12-scaling-to-100).
 - ⚖️ **Trade-off:** edge redirects make analytics eventually consistent and
   disable checks slower.
 - ❓ **Follow-ups:**
-  - *"What breaks first?"* Analytics write cost, then ALB/WAF request fees.
-    The link store and cache scale horizontally.
+  - *"What breaks first?"* ALB/WAF and CloudFront request fees, then the
+    per-click dedupe markers. Hot links are already batched; the link store
+    and cache scale horizontally.
 
 ## 🏗️ Architecture deep dive
 
@@ -427,7 +437,7 @@ Valkey's minimum. Levers and the full model are in [docs/cost.md](docs/cost.md).
 | Layer | Command | What it proves |
 | --- | --- | --- |
 | Unit | `make test` | 97.7 % coverage of `internal/` (gate 80 %), race detector, OpenAPI contract |
-| Integration | `make test-integration` | 14 end-to-end flows against emulators: dedupe under 500 replays, 10,000 creates with no duplicate codes, rate limits, graceful shutdown |
+| Integration | `make test-integration` | 15 end-to-end flows against emulators: dedupe under 500 replays, a hot link with 1,500 clicks each delivered twice (exact counts, batched writes), 10,000 creates with no duplicate codes, rate limits, graceful shutdown |
 | Images | `make images check-images scan-images` | arm64, UID 65532, ~16 MB, 0 fixable HIGH/CRITICAL |
 | Terraform | `make tf-check` | 57 `terraform test` runs; checkov, Trivy, tflint; plan, IAM, metric and suppression invariants |
 | Workflows | `make check-workflows` | actionlint, zizmor, every action pinned to a SHA |
@@ -456,7 +466,7 @@ docs/           design, ADRs, threat model, runbook, cost
 | Document | Contents |
 | --- | --- |
 | [docs/design.md](docs/design.md) | System design, in walkthrough order |
-| [docs/adr/](docs/adr/README.md) | 23 architecture decision records, each with an Interview Angle |
+| [docs/adr/](docs/adr/README.md) | 24 architecture decision records, each with an Interview Angle |
 | [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, STRIDE, residual risks, suppressions |
 | [docs/runbook.md](docs/runbook.md) | SLOs, every alarm, deploy/rollback and operational procedures |
 | [docs/cost.md](docs/cost.md) | Cost model, levers, guardrails |

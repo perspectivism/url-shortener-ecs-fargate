@@ -63,6 +63,7 @@ func run(args []string) int {
 		QueueURL: cfg.ClickQueueURL, Bucket: cfg.EventsBucket, TaskID: taskID(),
 		FlushInterval: cfg.FlushInterval, MaxBatchBytes: cfg.MaxBatchBytes,
 		Concurrency: cfg.Concurrency, WaitSeconds: cfg.WaitSeconds,
+		CountInterval: cfg.CountInterval, CountMaxEvents: cfg.CountMaxEvents,
 	}, worker.Deps{
 		SQS:      sqs.NewFromConfig(awsCfg),
 		S3:       s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = true }),
