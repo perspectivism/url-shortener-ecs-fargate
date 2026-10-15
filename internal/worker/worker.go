@@ -219,12 +219,17 @@ func (w *Worker) decode(ctx context.Context, msgs []sqstypes.Message) {
 // duplicate events move to the S3 buffer (their messages are deleted after
 // the flush); failed ones are dropped here and redelivered by SQS after the
 // visibility timeout.
+//
+// Visitors are added to the HyperLogLog BEFORE the counters commit, so stats
+// never show a click whose visitor is missing from today's uniques. PFADD is
+// idempotent: a click that fails to count and is redelivered re-adds harmlessly.
 func (w *Worker) count(ctx context.Context) {
 	if len(w.pending) == 0 {
 		return
 	}
 	batch := w.pending
 	w.pending = nil
+	w.addUniques(ctx, batch)
 	clicks := make([]store.Click, len(batch))
 	for i, p := range batch {
 		clicks[i] = p.click
@@ -250,7 +255,6 @@ func (w *Worker) count(ctx context.Context) {
 		}
 		kept = append(kept, p)
 	}
-	w.addUniques(ctx, kept)
 	for _, p := range kept {
 		if len(w.receipts) == 0 {
 			w.started = w.d.Now()

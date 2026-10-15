@@ -102,14 +102,18 @@ func (f *fakeS3) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*
 }
 
 type fakeRecorder struct {
-	mu      sync.Mutex
-	seen    map[string]bool
-	err     error           // every click fails
-	fail    map[string]bool // these event IDs fail
-	batches []int           // size of every RecordClicks call
+	mu       sync.Mutex
+	seen     map[string]bool
+	err      error           // every click fails
+	fail     map[string]bool // these event IDs fail
+	batches  []int           // size of every RecordClicks call
+	onCommit func()          // test hook, called when RecordClicks runs
 }
 
 func (f *fakeRecorder) RecordClicks(_ context.Context, clicks []store.Click) (store.BatchResult, error) {
+	if f.onCommit != nil {
+		f.onCommit()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.batches = append(f.batches, len(clicks))
@@ -430,8 +434,8 @@ func TestPartialCountingFailure(t *testing.T) {
 			t.Fatal("the failed click must not be deleted")
 		}
 	}
-	if r.u.adds != 2 {
-		t.Fatalf("uniques for failed clicks are added on redelivery, not now: adds=%d", r.u.adds)
+	if r.u.adds != 3 {
+		t.Fatalf("visitors are added before counting (idempotent on redelivery): adds=%d", r.u.adds)
 	}
 }
 
@@ -439,5 +443,22 @@ func TestPartialCountingFailure(t *testing.T) {
 func TestRecorderWithoutResults(t *testing.T) {
 	if got := result(store.BatchResult{}, 0); got != store.Failed {
 		t.Fatalf("missing result = %v, want Failed", got)
+	}
+}
+
+// Visitors are in the HyperLogLog before the counters commit, so stats never
+// show a counted click whose visitor is missing from uniques.
+func TestUniquesAddedBeforeCounting(t *testing.T) {
+	r := newRig(time.Hour)
+	r.q.batches = [][]sqstypes.Message{batchOf("a", 5)}
+	var addsAtCommit int
+	r.rec.onCommit = func() {
+		r.u.mu.Lock()
+		addsAtCommit = r.u.adds
+		r.u.mu.Unlock()
+	}
+	r.run(t)
+	if addsAtCommit != 5 {
+		t.Fatalf("visitors added before the counting commit = %d, want 5", addsAtCommit)
 	}
 }
