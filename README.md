@@ -274,6 +274,10 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"Why not hash the URL?"* Collisions and truncation. Same URL, different owners.
   - *"Random codes?"* They need a collision check on every write.
+  - *"Same long URL, same code?"* No. Each link has its own owner,
+    analytics, expiry and disable state; sharing codes would leak that
+    someone else shortened the URL. Retries use `Idempotency-Key`
+    ([design §3](docs/design.md#3-api-design)).
 - 📎 [ADR-0006](docs/adr/0006-short-code-generation-range-allocation-and-sqids.md)
 
 ### 6. Redirect path, 301 vs 302
@@ -287,6 +291,10 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"When would you use 301?"* Immutable links where analytics don't matter.
   - *"HEAD requests?"* They resolve but are not counted.
+  - *"Users far from us-east-1?"* They pay one backbone round trip (~200 ms
+    from Sydney); TLS ends at the nearest edge. The options, ordered by cost,
+    are short edge caching, edge redirects and multi-region; see
+    [design §6](docs/design.md#6-redirect-path).
 - 📎 [ADR-0007](docs/adr/0007-302-redirects-and-no-edge-caching.md)
 
 ### 7. Caching
@@ -303,6 +311,11 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"Why not DAX?"* Valkey also serves rate limits, idempotency and
     HyperLogLog uniques. Auth is IAM tokens, not passwords.
+  - *"Cache full?"* Serverless evicts LRU keys that have a TTL, and every key
+    here has one, so a full cache becomes misses, not errors. 1 GB holds
+    ~5 M links.
+  - *"Hot key?"* One viral code sits on one shard. Beyond tens of thousands
+    of reads per second, add a 1–5 s in-process cache per task.
 - 📎 [ADR-0008](docs/adr/0008-elasticache-serverless-valkey.md), [ADR-0009](docs/adr/0009-valkey-iam-authentication.md)
 
 ### 8. Analytics pipeline
@@ -325,7 +338,9 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   - *"Poison messages?"* They go to the DLQ after 5 receives; the redrive
     runbook works within 3 days.
   - *"Privacy?"* Per-day HMAC visitor IDs; raw IPs are never stored.
-- 📎 [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
+  - *"How long is data kept?"* Counters for 13 months (via TTL), including
+    after a link is deleted; raw events 13 months in prod (ADR-0025).
+- 📎 [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md), [ADR-0025](docs/adr/0025-analytics-retention-13-months.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
 
 ### 9. Abuse prevention and security
 
@@ -357,6 +372,13 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   - *"Deploys?"* Images are built once and the same digests are promoted.
     Rolling deploys use the circuit breaker; prod waits for a reviewer.
   - *"Why one account?"* Demo simplicity, with cross-environment guardrails (ADR-0019).
+  - *"What if us-east-1 goes down?"*
+    - **Today:** an outage until AWS recovers, with no data lost.
+    - **AZ loss and data corruption are covered:** the AZ failover is automatic;
+      corruption uses PITR, losing at most 5 minutes of data, in 1–2 h.
+    - **Cross-region DR** would be global tables plus a second stack (RTO in
+      minutes, about the cost of a second prod), or a backup "pilot light".
+    - Details: [design §11](docs/design.md#11-operations).
 - 📎 [ADR-0003](docs/adr/0003-ecs-on-fargate.md), [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md), [ADR-0013](docs/adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0016](docs/adr/0016-terraform-layout-environments-s3-native-locking.md), [ADR-0017](docs/adr/0017-cicd-github-oidc-rolling-deploys.md), [ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md), [ADR-0020](docs/adr/0020-graviton-arm64-and-fargate-spot.md)
 
 ### 11. Operations: observability, SLOs, runbook
@@ -466,7 +488,7 @@ docs/           design, ADRs, threat model, runbook, cost
 | Document | Contents |
 | --- | --- |
 | [docs/design.md](docs/design.md) | System design, in walkthrough order |
-| [docs/adr/](docs/adr/README.md) | 24 architecture decision records, each with an Interview Angle |
+| [docs/adr/](docs/adr/README.md) | 25 architecture decision records, each with an Interview Angle |
 | [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, STRIDE, residual risks, suppressions |
 | [docs/runbook.md](docs/runbook.md) | SLOs, every alarm, deploy/rollback and operational procedures |
 | [docs/cost.md](docs/cost.md) | Cost model, levers, guardrails |

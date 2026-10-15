@@ -619,9 +619,23 @@ Check that the exit code is 0 and that the `nightly summary` log line appears. R
    (plan → approve → apply). This removes services, the ALB, WAF and
    CloudFront and keeps the data (≈ $46/month foundation, [cost.md](cost.md)).
 2. **Abuse-driven spend:** tighten the WAF rate limits, revoke abusive keys (§5.5), disable links (§5.4).
-3. **Everything:** full teardown (§5.14).
+3. **Everything:** full teardown (§5.15).
 
-### 5.14 Full teardown
+### 5.14 Region outage
+
+There is no second region ([design §11](design.md#11-operations)): an outage
+of us-east-1 is an outage of the service, with no data loss (DynamoDB, S3 and
+SQS keep their data in the region).
+
+1. Confirm it on the [AWS Health Dashboard](https://health.aws.amazon.com/health/status), and note the start time.
+2. Tell link owners that redirects and the API are down. CloudFront answers
+   with 5xx errors from the edge.
+3. When the region recovers, check service health (4.3), the queue age
+   (4.4) and the DLQ (4.5). Redrive within 3 days (§5.8).
+4. Afterwards, decide whether the outage justifies cross-region DR, using
+   the options and costs in design §11.
+
+### 5.15 Full teardown
 
 Each step needs a typed confirmation and runs as a saved plan
 (SPEC §19.1). It goes prod (if deployed: first `force_destroy = true`, then

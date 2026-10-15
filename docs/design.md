@@ -94,6 +94,23 @@ every response against it.
 Errors are `application/problem+json` with stable `code` values (`unsafe_url`,
 `alias_taken`, `rate_limited` + `Retry-After`, …), mapped in one place.
 
+**Does the same long URL get the same short code? No, every create issues a new code.**
+
+- **A link is more than a URL.** Each link has its own owner, analytics,
+  expiry and disable state. Two campaigns pointing at the same page need
+  separate click counts.
+- **Sharing codes across owners would leak information.** Returning an
+  existing code would reveal that someone else already shortened that URL,
+  and would tie one owner's link to another owner's lifecycle (expiry,
+  deletion, disable).
+- **Retries are handled separately.** A client that retries a create sends
+  the same `Idempotency-Key` and gets the same response back (24 h).
+- **The extra storage is negligible:** about 500 B per duplicate link.
+
+If a product wanted per-owner deduplication, a `gsi2` on `OWNER#id` +
+`URL#sha256(normalized url)` would look up an existing link before creating
+one. It isn't built, because nobody has asked for it.
+
 ## 4. Data model
 
 Two DynamoDB tables ([ADR-0004](adr/0004-dynamodb-for-the-link-store.md),
@@ -149,6 +166,24 @@ Access patterns:
 - **Stats:** one query on `STATS#code` over a date range.
 - **Count clicks:** `TransactWriteItems` per batch: each click's dedupe
   marker plus one summed update per counter (≤ 100 items, ADR-0024).
+
+**Retention** ([ADR-0025](adr/0025-analytics-retention-13-months.md)).
+DynamoDB TTL deletes expired items in the background, usually within days;
+reads ignore expiry, so they only ever see data that is due to expire.
+
+| Data | Kept for | Mechanism |
+| --- | --- | --- |
+| Link | until deleted; with an expiry, `expires_at` + 30 days | TTL `ttl` (redirect answers 410 from `expires_at` on, regardless) |
+| Daily and dimension counters, uniques | **13 months** after their day; deleting a link keeps them until then | TTL `ttl` set on every counter write |
+| Dedupe markers `EVENT#id` | 3 days | TTL `ttl` |
+| Raw click events (S3) | 30 days dev, 395 days (13 months) prod | S3 lifecycle |
+| Valkey keys | 60 s to 8 days | key TTL |
+
+Thirteen months allows year-over-year comparison while bounding the table:
+analytics storage grows with links × days and no longer forever. Counters
+outlive a deleted link because they help abuse investigations. They are
+aggregates with no IPs (visitor IDs are per-day HMACs). The API returns 404
+for a deleted link, so owners can no longer read them.
 
 ## 5. Short code generation
 
@@ -211,6 +246,37 @@ sequenceDiagram
 
 `HEAD` resolves the same way but emits no click.
 
+**Latency users feel.** SLO N1 is measured at the ALB, so it excludes the
+network between the user and us-east-1. Because redirects are not cached at
+the edge, every click travels to the origin region:
+
+| User | Extra round trip to us-east-1 (typical) |
+| --- | --- |
+| US East | < 20 ms |
+| US West | ~60–70 ms |
+| Europe | ~80–90 ms |
+| Asia-Pacific (e.g. Sydney) | ~200 ms |
+
+CloudFront softens this: TLS terminates at the nearest edge location, and
+CloudFront reaches the origin over the AWS backbone through persistent
+connections. A far-away user therefore pays roughly **one backbone round
+trip** per redirect, not several. That is the price of every click reaching
+us (analytics, instant disable).
+
+Options, from cheapest to most involved:
+
+1. **Short edge caching for hot links** (e.g. 60 s TTL). This saves the round
+   trip for repeat clicks, but clicks must then come from CloudFront
+   real-time logs, and a disable takes up to the TTL.
+2. **Edge redirects** with CloudFront Functions + KeyValueStore. Every
+   redirect is answered at the edge (single-digit ms), at the cost of KVS
+   propagation delay for edits and log-based analytics.
+3. **Multi-region origins**: DynamoDB global tables, a stack per region,
+   latency-based routing. This also answers disaster recovery (§11).
+
+None is built: the demo's users and SLO are US-centric. §12 explains why
+option 2 becomes necessary at scale anyway.
+
 ## 7. Caching
 
 | Key | Value | TTL |
@@ -230,6 +296,24 @@ sequenceDiagram
 - **Auth:** IAM tokens, not passwords; each new connection signs a fresh
   token, and connections are recycled within 12 h
   ([ADR-0009](adr/0009-valkey-iam-authentication.md)).
+- **Eviction:** ElastiCache Serverless uses a fixed `volatile-lru` policy:
+  when the storage cap is reached, it evicts the least recently used keys
+  *that have a TTL*. Keys without one cause out-of-memory errors instead
+  ([AWS docs](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/RedisConfiguration.html)).
+  Every key here has a TTL, so a full cache degrades into misses (served from
+  DynamoDB), never write failures. Evicted HyperLogLog keys do lose today's
+  unique-visitor data, so the cap must hold the working set.
+- **Sizing:** a link entry is ~200 B, so 1 GB holds ~5 M hot links. A
+  HyperLogLog is ≤ 3 KB sparse and 12 KB dense, per link per day for 8 days,
+  so 100 k active links/day need about 1 GB more. The caps are 1 GB in dev
+  and 5 GB in prod (`cache_max_data_storage_gb`, a cost guardrail); raise them
+  as in [runbook §5.10](runbook.md#510-scale-up-for-a-traffic-spike).
+- **Hot keys in the cache:** one viral code maps to one slot on one shard.
+  A single key is limited to what one shard can serve, typically tens of
+  thousands of reads per second (not measured here), which is enough for this
+  design's interview scale. Beyond that, the fix is a tiny
+  in-process cache per task (1–5 s TTL) in front of Valkey, so a viral link
+  costs one Valkey read per task per second. This is listed in §12, not built.
 
 ## 8. Analytics pipeline
 
@@ -353,6 +437,33 @@ flowchart TB
 - **Cost:** about $46/month for the dev foundation, about $110–135 with
   services, and about $255–270 for prod idle ([cost.md](cost.md)). Every
   resource carries the `CostCenter` tag for budgets.
+
+**Availability and disaster recovery** (prod; RPO = data that can be lost,
+RTO = time to recover):
+
+| Failure | RPO | RTO | How |
+| --- | --- | --- | --- |
+| Task or Spot interruption | 0 | seconds | ALB health checks, ECS replaces the task; ≥ 2 redirect tasks across AZs |
+| Availability Zone | 0 | ~0 (automatic) | tasks and ALB span 3 AZs; DynamoDB, SQS, S3 and Valkey Serverless are multi-AZ by design |
+| Valkey outage | 0 for links; today's uniques at most | none needed | fail open to DynamoDB ([runbook §5.11](runbook.md#511-valkey-failure-mode)) |
+| Bad deploy | 0 | minutes | circuit breaker or redeploy the previous tag ([runbook §5.3](runbook.md#53-rollback)) |
+| Data corruption or bad write | ≤ 5 min (PITR, 35 days) | ~1–2 h | restore and swap ([runbook §5.9](runbook.md#59-dynamodb-pitr-restore-new-table-then-swap)) |
+| **Region outage** | 0 (data is durable in-region) | **until AWS recovers** | no second region today |
+
+The last row is the honest gap: a region outage is an outage, because nothing
+is deployed elsewhere.
+
+- **Cross-region DR** would add DynamoDB global tables (seconds of RPO) and a
+  second region's stack (Terraform already parameterizes the region), behind
+  CloudFront origin failover or latency routing. That gives an RTO of minutes,
+  at roughly the cost of a second prod environment.
+- **A cheaper "pilot light"** copies backups cross-region with AWS Backup. The
+  RPO becomes the backup interval and the RTO about 1–2 h of `terraform apply`
+  plus restore.
+
+Either is a cost decision for when the product needs it
+([ADR-0019](adr/0019-single-aws-account-for-dev-and-prod.md) lists
+multi-region as future work).
 
 ## 12. Scaling to 100×
 

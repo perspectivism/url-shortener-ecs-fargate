@@ -100,6 +100,7 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 | DynamoDB | on-demand with maximum-throughput caps per table; click counters written in batches per link (≈ 2.2 instead of 12 write units per click for hot links, [ADR-0024](adr/0024-batched-exactly-once-click-counting.md)) |
 | Athena | per-query scan cap (1 GB) and partition projection |
 | Logs | 14-day retention in dev, 90 days in prod; S3 lifecycle expiry |
+| Analytics storage | counters expire 13 months after their day (DynamoDB TTL deletes are free); raw events 30 days dev, 13 months prod ([ADR-0025](adr/0025-analytics-retention-13-months.md)) |
 | Container Insights | `container_insights` on the cluster module: the running-tasks alarms need it (`DesiredTaskCount`/`RunningTaskCount`); turning it off saves ≈ $15–30/month per environment but loses those alarms |
 | EMF metrics | metrics are emitted only when non-empty, so idle series are not billed; keep dimensions to `Service` (no per-link dimensions) |
 
@@ -117,7 +118,7 @@ Adds to §2 (task sizes from SPEC §12.4; Spot assumed ~70 % below on-demand).
 - `make teardown` removes everything, including the state bucket, from saved and
   confirmed plans; `make verify-teardown` checks 34 resource categories for
   leftovers. KMS keys remain "pending deletion" for 7 days and are not billed
-  in that state ([runbook §5.14](runbook.md#514-full-teardown)).
+  in that state ([runbook §5.15](runbook.md#515-full-teardown)).
 
 ## 7. Measured (dev)
 

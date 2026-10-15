@@ -89,7 +89,7 @@ variable "log_retention_days" {
 variable "events_retention_days" {
   description = "Raw click-event retention in S3 (null keeps forever)."
   type        = number
-  default     = 365
+  default     = 395 # 13 months, like the DynamoDB counters (ADR-0025)
 }
 
 variable "force_destroy" {

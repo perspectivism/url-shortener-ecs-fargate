@@ -84,6 +84,9 @@ func deltas(t *testing.T, calls []*dynamodb.TransactWriteItemsInput) map[string]
 				continue
 			}
 			for name, attr := range it.Update.ExpressionAttributeNames {
+				if name == "#ttl" {
+					continue
+				}
 				var n int64
 				val := ":n" + strings.TrimPrefix(name, "#a")
 				num, ok := it.Update.ExpressionAttributeValues[val].(*types.AttributeValueMemberN)
@@ -136,7 +139,7 @@ func TestRecordClicksSingle(t *testing.T) {
 	wantSKs := []string{"DAY#2026-10-14", "DIM#ref#2026-10-14#news.example", "DIM#country#2026-10-14#DE", "DIM#device#2026-10-14#desktop", "DIM#browser#2026-10-14#Firefox"}
 	for i, sk := range wantSKs {
 		u := in.TransactItems[i+1].Update
-		if s(u.Key["pk"]) != "STATS#abc" || s(u.Key["sk"]) != sk || u.ExpressionAttributeNames["#a0"] != "clicks" || *u.UpdateExpression != "ADD #a0 :n0" {
+		if s(u.Key["pk"]) != "STATS#abc" || s(u.Key["sk"]) != sk || u.ExpressionAttributeNames["#a0"] != "clicks" || *u.UpdateExpression != "ADD #a0 :n0 SET #ttl = :ttl" {
 			t.Errorf("item %d = %s %s %v", i+1, s(u.Key["pk"]), s(u.Key["sk"]), u.ExpressionAttributeNames)
 		}
 	}
@@ -145,6 +148,27 @@ func TestRecordClicksSingle(t *testing.T) {
 	if _, err := a.RecordClicks(context.Background(), []Click{click(true)}); err != nil || len(l.calls[0].TransactItems) != 2 ||
 		l.calls[0].TransactItems[1].Update.ExpressionAttributeNames["#a0"] != "bot_clicks" {
 		t.Fatalf("bot: %v", err)
+	}
+}
+
+// Every counter item carries a TTL 13 months after its day (ADR-0025).
+func TestCountersExpireAfterThirteenMonths(t *testing.T) {
+	l := &txLog{}
+	a := NewAnalytics(l.db(), "analytics", time.Second)
+	if _, err := a.RecordClicks(context.Background(), []Click{click(false)}); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprint(time.Date(2027, 11, 14, 0, 0, 0, 0, time.UTC).Unix()) // 2026-10-14 + 13 months
+	for _, it := range l.calls[0].TransactItems {
+		if it.Update == nil {
+			continue
+		}
+		if it.Update.ExpressionAttributeNames["#ttl"] != "ttl" || s(it.Update.ExpressionAttributeValues[":ttl"]) != want {
+			t.Fatalf("%s ttl = %s, want %s", s(it.Update.Key["sk"]), s(it.Update.ExpressionAttributeValues[":ttl"]), want)
+		}
+	}
+	if got := statsTTL("not-a-date", ts); got != ts.AddDate(0, 13, 0).Unix() {
+		t.Fatalf("fallback ttl = %d", got)
 	}
 }
 
@@ -171,7 +195,7 @@ func TestRecordClicksHumanAndBotShareDayItem(t *testing.T) {
 			day = it.Update
 		}
 	}
-	if day == nil || *day.UpdateExpression != "ADD #a0 :n0, #a1 :n1" || day.ExpressionAttributeNames["#a0"] != "bot_clicks" || day.ExpressionAttributeNames["#a1"] != "clicks" {
+	if day == nil || *day.UpdateExpression != "ADD #a0 :n0, #a1 :n1 SET #ttl = :ttl" || day.ExpressionAttributeNames["#a0"] != "bot_clicks" || day.ExpressionAttributeNames["#a1"] != "clicks" {
 		t.Fatalf("day update = %+v", day)
 	}
 	if d := deltas(t, l.calls); d["DAY#2026-10-14/clicks"] != 2 || d["DAY#2026-10-14/bot_clicks"] != 1 {
@@ -365,6 +389,9 @@ func TestUniquesAndQueries(t *testing.T) {
 	ctx := context.Background()
 	if err := a.SetUniques(ctx, "abc", "2026-10-13", 42); err != nil || s(upd.Key["sk"]) != "DAY#2026-10-13" || s(upd.ExpressionAttributeValues[":n"]) != "42" {
 		t.Fatalf("set uniques: %v", err)
+	}
+	if *upd.UpdateExpression != "SET uniques = :n, #ttl = :ttl" || s(upd.ExpressionAttributeValues[":ttl"]) != fmt.Sprint(time.Date(2027, 11, 13, 0, 0, 0, 0, time.UTC).Unix()) {
+		t.Fatalf("uniques ttl: %s %s", *upd.UpdateExpression, s(upd.ExpressionAttributeValues[":ttl"]))
 	}
 
 	day1, _ := attributevalue.MarshalMap(map[string]any{"pk": "STATS#abc", "sk": "DAY#2026-10-13", "clicks": 5, "bot_clicks": 1, "uniques": 3})

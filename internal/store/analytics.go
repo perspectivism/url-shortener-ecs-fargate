@@ -19,6 +19,22 @@ import (
 // DedupeTTL is how long event dedupe markers live (SPEC §5.2).
 const DedupeTTL = 3 * 24 * time.Hour
 
+// StatsRetentionMonths is how long daily and dimension counters are kept
+// (ADR-0025): 13 months allows year-over-year comparison. Counters outlive a
+// deleted link and expire on the same schedule.
+const StatsRetentionMonths = 13
+
+// statsTTL is the DynamoDB TTL (epoch seconds) for counters of day date
+// (yyyy-mm-dd): the start of that day plus 13 months, or 13 months after
+// fallback if the date does not parse.
+func statsTTL(date string, fallback time.Time) int64 {
+	d, err := time.Parse(time.DateOnly, date)
+	if err != nil {
+		d = fallback
+	}
+	return d.AddDate(0, StatsRetentionMonths, 0).Unix()
+}
+
 // Click is one click as recorded by the worker (already normalized).
 type Click struct {
 	EventID string
@@ -97,6 +113,7 @@ type chunk struct {
 	idx    []int    // indices into the input
 	items  []string // counter sort keys, in first-use order
 	deltas map[string]map[string]int64
+	ttl    map[string]int64 // counter sort key -> TTL (13 months after its day)
 }
 
 func counterKeys(c Click) []counterKey {
@@ -131,12 +148,15 @@ func (ch *chunk) add(i int, c Click) {
 			attrs = map[string]int64{}
 			ch.deltas[k.sk] = attrs
 			ch.items = append(ch.items, k.sk)
+			ch.ttl[k.sk] = statsTTL(c.Date, c.TS)
 		}
 		attrs[k.attr]++
 	}
 }
 
-func newChunk(code string) *chunk { return &chunk{code: code, deltas: map[string]map[string]int64{}} }
+func newChunk(code string) *chunk {
+	return &chunk{code: code, deltas: map[string]map[string]int64{}, ttl: map[string]int64{}}
+}
 
 // RecordClicks implements access pattern 6 for a batch of clicks (ADR-0024).
 // Clicks are grouped by link and packed into transactions of at most 100
@@ -254,8 +274,8 @@ func (a *Analytics) transact(ctx context.Context, clicks []Click, ch *chunk) err
 	}
 	for _, sk := range ch.items {
 		attrs := slices.Sorted(maps.Keys(ch.deltas[sk]))
-		names := make(map[string]string, len(attrs))
-		values := make(map[string]types.AttributeValue, len(attrs))
+		names := map[string]string{"#ttl": "ttl"}
+		values := map[string]types.AttributeValue{":ttl": nv(ch.ttl[sk])}
 		clauses := make([]string, len(attrs))
 		for n, attr := range attrs {
 			names[fmt.Sprintf("#a%d", n)] = attr
@@ -265,7 +285,7 @@ func (a *Analytics) transact(ctx context.Context, clicks []Click, ch *chunk) err
 		items = append(items, types.TransactWriteItem{Update: &types.Update{
 			TableName:                 &a.table,
 			Key:                       map[string]types.AttributeValue{"pk": sv(pk), "sk": sv(sk)},
-			UpdateExpression:          aws.String("ADD " + strings.Join(clauses, ", ")),
+			UpdateExpression:          aws.String("ADD " + strings.Join(clauses, ", ") + " SET #ttl = :ttl"),
 			ExpressionAttributeNames:  names,
 			ExpressionAttributeValues: values,
 		}})
@@ -304,15 +324,17 @@ func cancellation(err error, nMarkers int) (dups map[int]bool, retryable bool) {
 
 func dimSK(dim, date, value string) string { return "DIM#" + dim + "#" + date + "#" + value }
 
-// SetUniques writes the persisted unique-visitor count for a day (idempotent).
+// SetUniques writes the persisted unique-visitor count for a day (idempotent),
+// with the same 13-month TTL as the day's counters.
 func (a *Analytics) SetUniques(ctx context.Context, code, date string, n int64) error {
 	ctx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 	_, err := a.db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 &a.table,
 		Key:                       map[string]types.AttributeValue{"pk": sv(statsPK(code)), "sk": sv("DAY#" + date)},
-		UpdateExpression:          aws.String("SET uniques = :n"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{":n": nv(n)},
+		UpdateExpression:          aws.String("SET uniques = :n, #ttl = :ttl"),
+		ExpressionAttributeNames:  map[string]string{"#ttl": "ttl"},
+		ExpressionAttributeValues: map[string]types.AttributeValue{":n": nv(n), ":ttl": nv(statsTTL(date, time.Now()))},
 	})
 	if err != nil {
 		return fmt.Errorf("set uniques: %w", err)

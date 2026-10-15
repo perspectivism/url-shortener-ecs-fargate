@@ -30,3 +30,4 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0022](0022-observability-alerting-and-cost-guardrails.md) | Observability, alerting and cost guardrails | Accepted |
 | [0023](0023-iam-review-data-perimeter-and-waf-tuning.md) | IAM review, VPC endpoint data perimeter and WAF tuning | Accepted |
 | [0024](0024-batched-exactly-once-click-counting.md) | Batched exactly-once click counting | Accepted |
+| [0025](0025-analytics-retention-13-months.md) | Analytics retention of 13 months | Accepted |
