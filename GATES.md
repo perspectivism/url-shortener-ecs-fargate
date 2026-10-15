@@ -17,6 +17,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M7 🛡️ Security hardening](#m7-️-security-hardening---closed-local)
 - [M8 🔁 CI/CD](#m8--cicd---closed-local)
 - [M9 📚 Docs & final review](#m9--docs--final-review---closed-local)
+- [Post-M9: batched click counting](#post-m9-change-batched-exactly-once-click-counting---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -318,6 +319,26 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   - The link checker now keeps inline code when slugging headings (GitHub behaviour); before, headings with code produced wrong anchors.
   - The fresh-clone test links this checkout's verified `./.tools` by default (`FRESH_TOOLS=1` installs from scratch); the quickstart itself needs no tools beyond Docker, make, curl and jq.
 - **Pending (closed-local):** the consolidated list below (items 18–19 are M9's).
+
+## Post-M9 change: batched exactly-once click counting — 🟡 closed-local
+
+- **Date:** 2026-10-15
+- **Commits:** `fab1d33`, `02fe0fc` (tag `post-m9-batched-counting-local`)
+- **Why:** answers "what happens when a link goes viral?". With one transaction per click (12 WRU), a hot link's `DAY#` counter item hits DynamoDB's ~1,000 writes/s per-item limit at a few hundred clicks/s. Approved by the owner on 2026-10-15.
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Unit (store, worker, config) | `make test` | ✅ | coverage 97.8 %; new tests: hot-link aggregation, ≤ 100-item packing, duplicates rebuilt from cancellation reasons, conflict/throttle retries, human + bot clicks sharing the `DAY#` item, visitors added before the counting commit |
+| Hot-link integration test | `make test-integration` (`TestHotLinkBatchedCounting`) | ✅ | 1,500 clicks on one link, each delivered twice: exact totals, dimensions and uniques; 1,500 duplicates detected; **17 transactions (88 clicks per counting write)** |
+| Full regression | `make ci` | ✅ | on `02fe0fc`: lint 0; coverage 97.8 %; integration (15 tests) 87 s; images 15.6–17.2 MB, UID 65532; checkov 884/0/75; tflint 0; 57 `terraform test` runs; 45/45 diagrams, 287/287 links; 24 ADRs; pins OK; zizmor clean; gitleaks 26 commits clean; govulncheck clean |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `02fe0fc`: quickstart `302`, `total_clicks: 1`; integration green (95 s) |
+
+- **Second bug caught by the integration tests:** the first batched worker added visitors to the HyperLogLog *after* committing counters, so stats briefly showed clicks with `uniques = 0`. Visitors are now added before the commit (PFADD is idempotent on redelivery); covered by `TestUniquesAddedBeforeCounting`.
+- **Bug caught by the new integration test:** the first version sent two operations on the same `DAY#` item (human `clicks` and `bot_clicks`) in one transaction, which DynamoDB rejects. Fixed with one update per item carrying several `ADD` clauses; the unit-test fake now rejects duplicate items like DynamoDB does.
+- **Decisions / ADRs:** ADR-0024 (supersedes ADR-0010's per-event transaction). Updated: design §2/§4/§8/§12, README walkthrough steps 2, 8 and 12 plus the testing table, threat model P1, runbook 4.4/4.7, cost levers, dashboard (`WorkerCountTransactions`), `.env.example` (worker settings, including the new `WORKER_COUNT_INTERVAL` and `WORKER_COUNT_MAX_EVENTS`).
+- **Deviations from SPEC:** §8.2 ("for each message: TransactWriteItems") → batched transactions per link with per-click markers; stats freshness gains at most 2 s (SPEC N4 allows 2 min).
+- **Pending (closed-local):** no new cloud checks. Existing item 9 (services healthy) and item 10 (smoke: stats within 2 minutes) cover it in AWS. Optional: watch `WorkerCountTransactions` against `WorkerEventsProcessed` on the dashboard during the k6 baseline (item 14).
 
 ## 📋 Pending cloud checks summary
 
