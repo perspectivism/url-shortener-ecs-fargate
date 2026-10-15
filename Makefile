@@ -268,7 +268,7 @@ test-scripts: ## Self-tests for the version, release, saved-plan and settings sc
 .PHONY: ci
 ci: ## Everything CI runs, locally (the dev plan needs AWS and runs only in CI)
 	$(MAKE) lint test test-scripts vuln test-secret-scan secret-scan check-ignore
-	$(MAKE) test-integration
+	$(MAKE) up-deps test-integration
 	$(MAKE) images check-images scan-images test-image-secret-scan
 	$(MAKE) tf-check
 	$(MAKE) docs-check check-workflows

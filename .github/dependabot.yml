@@ -1,31 +1,32 @@
-# Dependency updates (SPEC §14). Pinned CLI tools in .tool-versions and the
-# Valkey/emulator digests in docker-compose.yml are bumped by hand (Dependabot
-# cannot verify the checksums install-tools.sh pins).
+# Dependency updates (SPEC §14), monthly for every ecosystem. Dependabot also
+# bumps the emulator images in docker-compose.yml (tag and digest). The CLI
+# tools pinned in .tool-versions are bumped by hand, because Dependabot cannot
+# update the checksums scripts/install-tools.sh verifies.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     groups:
       aws-sdk: { patterns: ["github.com/aws/*"] }
 
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     groups:
       actions: { patterns: ["*"] }
 
   - package-ecosystem: docker
     directory: /build
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
 
   - package-ecosystem: docker-compose
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
 
   - package-ecosystem: terraform
     directories: [/infra/bootstrap, /infra/envs/dev, /infra/envs/prod]
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     groups:
       providers: { patterns: ["*"] }
 

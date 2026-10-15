@@ -53,6 +53,7 @@ jobs:
           path: .tools
           key: tools-${{ runner.os }}-${{ hashFiles('.tool-versions', '.terraform-version', 'scripts/install-tools.sh', 'tools/**') }}
       - run: make tools
+      - run: make up-deps # start the emulators and create tables, queue and bucket
       - run: make test-integration
       - if: always()
         run: make down
