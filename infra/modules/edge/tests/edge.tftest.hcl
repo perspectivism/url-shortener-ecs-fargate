@@ -166,6 +166,27 @@ run "waf_rules_and_logging" {
   }
 
   assert {
+    condition = alltrue(concat(
+      [for v in aws_wafv2_web_acl.this.visibility_config : !v.sampled_requests_enabled],
+      [for r in aws_wafv2_web_acl.this.rule : !one(r.visibility_config).sampled_requests_enabled],
+    ))
+    error_message = "WAF sampled requests must be off: log redaction does not apply to samples, which would expose Authorization (API keys)."
+  }
+
+  assert {
+    condition     = one(aws_wafv2_web_acl_logging_configuration.this.logging_filter).default_behavior == "DROP"
+    error_message = "WAF logs carry client IPs: drop allowed requests, keep only BLOCK/COUNT."
+  }
+
+  assert {
+    condition = length(setintersection(
+      toset(aws_cloudwatch_log_delivery.cloudfront.record_fields),
+      toset(["c-ip", "c-port", "x-forwarded-for", "cs(Referer)", "cs(User-Agent)", "cs-uri-query", "cs(Cookie)"]),
+    )) == 0 && length(aws_cloudwatch_log_delivery.cloudfront.record_fields) > 0
+    error_message = "CloudFront logs must not record viewer IPs, ports, referrers, user agents, query strings or cookies (SPEC N6)."
+  }
+
+  assert {
     condition     = startswith(aws_cloudwatch_log_group.waf.name, "aws-waf-logs-") && aws_cloudwatch_log_group.waf.kms_key_id == var.us_east_1_kms_key_arn
     error_message = "WAF log group: required prefix, CMK encryption."
   }

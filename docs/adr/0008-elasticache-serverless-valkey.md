@@ -1,6 +1,6 @@
 # ADR-0008: ElastiCache Serverless for Valkey (vs DAX, vs no cache)
 
-- **Status:** Accepted
+- **Status:** Accepted (delete-on-write invalidation superseded by [ADR-0030](0030-consistency-under-concurrency.md): invalidation fences and fill-if-absent)
 - **Date:** 2026-10-14
 - **Deciders:** project owner, coding agent
 

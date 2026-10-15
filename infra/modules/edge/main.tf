@@ -260,6 +260,16 @@ resource "aws_cloudwatch_log_group" "cloudfront" {
   kms_key_id        = var.us_east_1_kms_key_arn
 }
 
+locals {
+  cloudfront_log_fields = [
+    "date", "time", "x-edge-location", "x-edge-request-id", "x-host-header", "cs(Host)",
+    "cs-method", "cs-uri-stem", "cs-protocol", "cs-protocol-version", "sc-status",
+    "sc-bytes", "cs-bytes", "time-taken", "time-to-first-byte", "sc-content-type", "sc-content-len",
+    "x-edge-result-type", "x-edge-response-result-type", "x-edge-detailed-result-type",
+    "ssl-protocol", "ssl-cipher",
+  ]
+}
+
 resource "aws_cloudwatch_log_delivery_source" "cloudfront" {
   region = local.global_region
 
@@ -284,6 +294,11 @@ resource "aws_cloudwatch_log_delivery" "cloudfront" {
 
   delivery_source_name     = aws_cloudwatch_log_delivery_source.cloudfront.name
   delivery_destination_arn = aws_cloudwatch_log_delivery_destination.cloudfront.arn
+
+  # Privacy (SPEC N6, ADR-0018): an allowlist of fields. Excluded: c-ip, c-port
+  # and x-forwarded-for (viewer IPs), cs(Referer) (full referrer URL),
+  # cs(User-Agent), cs-uri-query and cs(Cookie).
+  record_fields = local.cloudfront_log_fields
 }
 
 # --- WAF (CLOUDFRONT scope, us-east-1) ----------------------------------------------------
@@ -323,7 +338,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name_prefix}-AWSManagedRulesAmazonIpReputationList"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false # samples ignore log redaction and would show Authorization (API keys); use the WAF logs
     }
   }
 
@@ -353,7 +368,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name_prefix}-AWSManagedRulesAnonymousIpList"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false # samples ignore log redaction and would show Authorization (API keys); use the WAF logs
     }
   }
 
@@ -376,7 +391,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name_prefix}-AWSManagedRulesKnownBadInputsRuleSet"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false # samples ignore log redaction and would show Authorization (API keys); use the WAF logs
     }
   }
 
@@ -407,7 +422,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name_prefix}-AWSManagedRulesCommonRuleSet"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false # samples ignore log redaction and would show Authorization (API keys); use the WAF logs
     }
   }
 
@@ -482,7 +497,7 @@ resource "aws_wafv2_web_acl" "this" {
       visibility_config {
         cloudwatch_metrics_enabled = true
         metric_name                = "${var.name_prefix}-${rule.key}"
-        sampled_requests_enabled   = true
+        sampled_requests_enabled   = false # samples ignore log redaction and would show Authorization (API keys); use the WAF logs
       }
     }
   }
@@ -490,7 +505,7 @@ resource "aws_wafv2_web_acl" "this" {
   visibility_config {
     cloudwatch_metrics_enabled = true
     metric_name                = var.name_prefix
-    sampled_requests_enabled   = true
+    sampled_requests_enabled   = false # samples ignore log redaction and would show Authorization (API keys); use the WAF logs
   }
 }
 
@@ -512,6 +527,30 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
   redacted_fields {
     single_header {
       name = "authorization"
+    }
+  }
+
+  # WAF logs always carry the client IP (it cannot be redacted), so only
+  # requests a rule blocked or counted are kept: what abuse investigation and
+  # rule tuning need. Allowed requests are dropped (SPEC N6 deviation, ADR-0018).
+  logging_filter {
+    default_behavior = "DROP"
+
+    filter {
+      behavior    = "KEEP"
+      requirement = "MEETS_ANY"
+
+      condition {
+        action_condition {
+          action = "BLOCK"
+        }
+      }
+
+      condition {
+        action_condition {
+          action = "COUNT"
+        }
+      }
     }
   }
 }

@@ -48,7 +48,7 @@ run "phase1_data_alarms_only" {
   }
 
   assert {
-    condition     = aws_sns_topic_subscription.email["alerts@example.com"].protocol == "email"
+    condition     = aws_sns_topic_subscription.email[0].protocol == "email" && nonsensitive(aws_sns_topic_subscription.email[0].endpoint) == "alerts@example.com"
     error_message = "alert_email must be subscribed."
   }
 }

@@ -47,9 +47,10 @@ run "oidc_trust_is_scoped_per_role" {
   assert {
     condition = (
       contains(flatten([for c in one(data.aws_iam_policy_document.trust["plan"].statement).condition : c.values]), "repo:acme/url-shortener-ecs-fargate:pull_request") &&
-      contains(flatten([for c in one(data.aws_iam_policy_document.trust["apply-prod"].statement).condition : c.values]), "repo:acme/url-shortener-ecs-fargate:environment:prod")
+      contains(flatten([for c in one(data.aws_iam_policy_document.trust["apply-prod"].statement).condition : c.values]), "repo:acme/url-shortener-ecs-fargate:environment:prod") &&
+      contains(flatten([for c in one(data.aws_iam_policy_document.trust["plan-prod"].statement).condition : c.values]), "repo:acme/url-shortener-ecs-fargate:environment:prod-plan")
     )
-    error_message = "Plan trusts pull requests; apply roles trust only their GitHub environment."
+    error_message = "Plan trusts pull requests; deploy plan roles trust only <env>-plan; apply roles trust only their GitHub environment."
   }
 
   assert {
@@ -64,13 +65,36 @@ run "oidc_trust_is_scoped_per_role" {
   }
 
   assert {
-    condition     = length(setsubtract(keys(data.aws_iam_policy_document.trust), ["plan", "apply-dev", "apply-prod"])) == 0
-    error_message = "Only the plan role and one apply role per environment trust GitHub."
+    condition     = length(setsubtract(keys(data.aws_iam_policy_document.trust), ["plan", "plan-dev", "plan-prod", "apply-dev", "apply-prod"])) == 0
+    error_message = "Only the PR plan role and one deploy plan and one apply role per environment trust GitHub."
   }
 
   assert {
-    condition     = alltrue([for r in concat([aws_iam_role.plan], values(aws_iam_role.apply)) : r.permissions_boundary == aws_iam_policy.boundary.arn])
+    condition     = alltrue([for r in concat([aws_iam_role.plan], values(aws_iam_role.deploy_plan), values(aws_iam_role.apply)) : r.permissions_boundary == aws_iam_policy.boundary.arn])
     error_message = "Every CI role must carry the permissions boundary."
+  }
+}
+
+run "deploy_plan_roles_write_only_their_saved_plans" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for env in ["dev", "prod"] : alltrue([
+        for st in data.aws_iam_policy_document.deploy_plan[env].statement :
+        st.sid == "SavedPlan" && st.effect == "Allow" && toset(st.actions) == toset(["s3:PutObject"]) &&
+        toset(st.resources) == toset(["arn:aws:s3:::shortener-tfstate-123456789012/plans/${env}/*"])
+      ])
+    ])
+    error_message = "A deploy plan role may add only PutObject on plans/<its env>/ in the state bucket."
+  }
+
+  assert {
+    condition = alltrue([
+      for env in ["dev", "prod"] :
+      data.aws_iam_policy_document.deploy_plan[env].source_policy_documents == tolist([data.aws_iam_policy_document.plan.json])
+    ])
+    error_message = "Deploy plan roles start from the PR plan role's policy (read-only state, no application data)."
   }
 }
 

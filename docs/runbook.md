@@ -205,7 +205,7 @@ counting transactions next to processed events, so a falling ratio of clicks
 per transaction means each write carries fewer clicks. Rising `WorkerRetries`
 means counting transactions are failing (conflicts on a hot counter between
 workers, or throttling) and the clicks wait for redelivery.
-**Escalation:** age > 1 h in prod → owner; messages older than 3 days lose dedupe protection (§5.8).
+**Escalation:** age > 1 h in prod → owner; messages older than 4 days lose dedupe protection (§5.8).
 
 ### 4.5 `dlq`
 
@@ -226,7 +226,7 @@ aws sqs receive-message --queue-url $dlq --max-number-of-messages 1 --visibility
 aws logs filter-log-events --log-group-name /shortener/$env/worker --filter-pattern '{ $.level = "ERROR" }' --max-items 20
 ```
 
-**Remediation:** redrive within **3 days** (§5.8).
+**Remediation:** redrive within **4 days** (§5.8).
 **Escalation:** a repeated DLQ after redrive → treat as a worker bug; owner fixes forward.
 
 ### 4.6 `dropped-clicks`
@@ -409,27 +409,36 @@ except the smoke API keys.
 
    ```bash
    gh variable set AWS_REGION --body us-east-1
-   gh variable set OWNER --body perspectivism
    gh variable set TF_STATE_BUCKET --body "$(terraform -chdir=infra/bootstrap output -raw state_bucket)"
    gh variable set TF_STATE_KMS_KEY_ARN --body "$(terraform -chdir=infra/bootstrap output -raw state_kms_key_arn)"
    gh variable set AWS_PLAN_ROLE_ARN --body "$(terraform -chdir=infra/bootstrap output -raw plan_role_arn)"
    ```
 
-2. **Environments `dev` and `prod`:** Settings → Environments. On **both**:
-   restrict deployment branches to `main`, and add **required reviewers**
-   (the owner). Nothing deploys without approval
-   ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)). Leave
-   "Prevent self-review" **off** while you are the only reviewer: it stops
-   the person who started a run from approving it, so every deploy would wait
-   forever. Turn it on once a second reviewer exists. Then set the variables:
+2. **Environments** (Settings → Environments), four of them
+   ([ADR-0028](adr/0028-approve-the-saved-plan-versioned-environment-settings.md)):
+   - **`dev-plan` and `prod-plan`:** restrict deployment branches to `main`;
+     **no reviewers** (they only plan, with a read-only role).
+   - **`dev` and `prod`:** restrict deployment branches to `main`, and add
+     **required reviewers** (the owner). Nothing deploys without approval, and
+     the reviewer approves the saved plan the matching `plan-<env>` job
+     printed ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)).
+     Leave "Prevent self-review" **off** while you are the only reviewer: it
+     stops the person who started a run from approving it, so every deploy
+     would wait forever. Turn it on once a second reviewer exists.
+
+   Then set the variables:
 
    ```bash
    for env in dev prod; do
+     gh variable set AWS_DEPLOY_PLAN_ROLE_ARN --env "$env-plan" \
+       --body "$(terraform -chdir=infra/bootstrap output -json deploy_plan_role_arns | jq -r --arg e "$env" '.[$e]')"
+     gh variable set ALERT_EMAIL --env "$env-plan" --body "$ALERT_EMAIL"   # the address that receives alarms
      gh variable set AWS_APPLY_ROLE_ARN --env "$env" \
        --body "$(terraform -chdir=infra/bootstrap output -json apply_role_arns | jq -r --arg e "$env" '.[$e]')"
-     gh variable set ALERT_EMAIL --env "$env" --body "$ALERT_EMAIL"   # the address that receives alarms
    done
    ```
+
+   Every other setting is committed in `infra/envs/<env>/deploy.tfvars`.
 
 3. **Smoke API key per environment.** The key goes straight into the GitHub
    secret and is never shown (run with your own AWS credentials):
@@ -464,24 +473,35 @@ flowchart LR
     ci --> merge["merge to main<br/>(no deploy)"]
     merge --> run["👤 Run workflow:<br/>Actions → deploy (main)"]
     run --> build["build arm64 OCI images once<br/>(digests recorded)"]
-    build --> wdev{"👤 dev reviewers"}
-    wdev -->|approve| dev["dev: push + verify digests<br/>plan → apply saved plan → smoke"]
-    dev --> wait{"👤 prod reviewers"}
-    wait -->|approve| prod["prod: same digests<br/>plan → apply → smoke"]
+    build --> pdev["plan-dev (read-only)<br/>full plan in the run summary<br/>saved plan + SHA-256"]
+    pdev --> wdev{"👤 dev reviewers<br/>read the plan"}
+    wdev -->|approve| dev["dev: verify plan SHA-256<br/>push + verify digests<br/>apply saved plan → smoke"]
+    dev --> pprod["plan-prod (read-only)"]
+    pprod --> wait{"👤 prod reviewers<br/>read the plan"}
+    wait -->|approve| prod["prod: same digests<br/>apply saved plan → smoke"]
     prod --> rel["GitHub Release vX.Y.0<br/>tag + image digests"]
 ```
 
 - **Nothing deploys automatically** ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)).
   Merging a PR runs CI only. To deploy, start **Actions → deploy → Run
   workflow** on `main` (or run `gh workflow run deploy --ref main`).
-- `deploy.yml` builds the images once, then waits for a reviewer to approve
-  the `dev` environment. After approval, it pushes the images to dev and
-  checks each ECR digest against the built manifest. It then plans with
-  `image_tag = <12-char SHA>`, applies exactly that plan (ECS rolling deploy
-  with the circuit breaker) and runs the smoke suite.
-- **Prod** waits for a reviewer to approve the `prod` environment. Before
-  approving, check that the dev smoke step is green and the dev dashboard is
-  quiet. The prod job pushes the **same digests** and verifies them.
+- `deploy.yml` builds the images once. The `plan-dev` job then plans with
+  `image_tag = <12-char SHA>` and the committed `deploy.tfvars`, and prints the
+  summary and full plan in the run summary
+  ([ADR-0028](adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
+- **Approve dev only after reading that plan.** The `dev` job then fetches
+  the saved plan and refuses it unless its SHA-256 matches. It pushes the
+  images, checks each ECR digest against the built manifest, applies exactly
+  that plan (ECS rolling deploy with the circuit breaker) and runs the smoke
+  suite. If anything changed the state since the plan, Terraform rejects the
+  stale plan; start a new run.
+- **Prod** works the same way: `plan-prod` runs after dev succeeds. Before
+  approving `prod`, read its plan, and check that the dev smoke step is green
+  and the dev dashboard is quiet. The prod job pushes the **same digests**
+  and verifies them.
+- **Changing a setting** (capacity, budget, custom domain): edit
+  `infra/envs/<env>/deploy.tfvars` in a PR. The next deploy plans with it;
+  CI never falls back to defaults.
 - **Release:** after the prod smoke tests pass, `scripts/release.sh` creates
   the next GitHub Release, bumping the minor version (`v0.1.0` → `v0.2.0`).
   The release creates its tag and records the commits since the previous
@@ -493,8 +513,9 @@ flowchart LR
     (`v0.2.0-4-g<sha>`) to its release.
 - Manual deploy, from a clean commit with admin credentials: run `make
   images-oci`, then `APPROVED=yes make push-images ENV=dev`, then set
-  `image_tag` in `terraform.tfvars`. Run `make plan ENV=dev`; once the plan is
-  approved, run `APPROVED=yes make apply ENV=dev`, then `make smoke-env ENV=dev`.
+  `enable_services = true` and `image_tag` in the gitignored `terraform.tfvars`
+  (the per-run overlay on `deploy.tfvars`). Run `make plan ENV=dev`; once the
+  plan is approved, run `APPROVED=yes make apply ENV=dev`, then `make smoke-env ENV=dev`.
 
 ### 5.3 Rollback
 
@@ -507,7 +528,7 @@ flowchart LR
    - **Fast rollback:** use admin credentials with `image_tag` set to the last
      good release's SHA: `git rev-parse --short=12 v0.3.0^{commit}`, or read
      it from the release notes. Its images are still in ECR, since tags are
-     immutable. Set it in
+     immutable. Set it as `image_tag` in the gitignored
      `infra/envs/<env>/terraform.tfvars` and run `make plan ENV=<env>`. After
      approval, run `APPROVED=yes make apply ENV=<env>`, then `make smoke-env ENV=<env>`.
      Afterwards, merge a revert so `main` matches what is deployed.
@@ -518,12 +539,18 @@ flowchart LR
 Use an API key with the `admin` scope:
 
 ```bash
-curl -fsS -X POST -H "Authorization: Bearer $ADMIN_KEY" "$BASE_URL/api/v1/admin/links/<code>/disable"
+curl -fsS -X POST -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{"reason":"phishing report <ticket>"}' "$BASE_URL/api/v1/admin/links/<code>/disable"
 ```
 
-The link answers 410 at once: the cache key is deleted on every mutation. If
+`reason` is required (at most 256 characters) and is returned as
+`disabled_reason`. The link answers 410 at once and stays disabled: every
+mutation replaces the cache entry with a 10-second fence that in-flight
+cache fills cannot overwrite
+([ADR-0030](adr/0030-consistency-under-concurrency.md)). If
 `cache-invalidation-failed` fires, re-issue the call (4.9). Re-enable with
-`/enable`. The nightly rescan disables links that Safe Browsing flags by itself.
+`POST …/enable` (no body). The nightly rescan disables links that Safe
+Browsing flags by itself.
 
 ### 5.5 Revoke an API key
 
@@ -558,8 +585,9 @@ Rotate just after midnight UTC to minimise this.
 
 ### 5.8 Redrive the DLQ
 
-Redrive **within 3 days** of the original click: dedupe markers expire after
-3 days, and older messages could be counted twice.
+Redrive **within 4 days** of the original click: a dedupe marker lives 4 days
+from when the click was counted, which is never before the click
+([ADR-0030](adr/0030-consistency-under-concurrency.md)). Older messages could be counted twice.
 
 ```bash
 q=$(aws sqs get-queue-url --queue-name $p-click-events --query QueueUrl --output text)
@@ -602,7 +630,7 @@ is being re-created (minutes). Run this in a maintenance window.
 
 ### 5.10 Scale up for a traffic spike
 
-| Bottleneck | Change (reviewed apply) |
+| Bottleneck | Change (in `infra/envs/<env>/deploy.tfvars`, then a reviewed deploy) |
 | --- | --- |
 | Redirect tasks | `redirect_min_count` / `redirect_max_count` (autoscaling: 500 requests per target, CPU 60 %); raise the minimum **before** a planned spike, because Fargate needs 30–60 s to start a task |
 | API / worker | `api_max_count`, `worker_max_count` |
@@ -653,7 +681,7 @@ SQS keep their data in the region).
 2. Tell link owners that redirects and the API are down. CloudFront answers
    with 5xx errors from the edge.
 3. When the region recovers, check service health (4.3), the queue age
-   (4.4) and the DLQ (4.5). Redrive within 3 days (§5.8).
+   (4.4) and the DLQ (4.5). Redrive within 4 days (§5.8).
 4. Afterwards, decide whether the outage justifies cross-region DR, using
    the options and costs in design §11.
 

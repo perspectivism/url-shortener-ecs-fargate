@@ -10,7 +10,7 @@ resource "aws_sqs_queue" "dlq" {
 resource "aws_sqs_queue" "clicks" {
   name                              = "${var.name_prefix}-click-events"
   visibility_timeout_seconds        = var.visibility_timeout_seconds
-  message_retention_seconds         = 345600 # 4 days
+  message_retention_seconds         = 345600 # 4 days; must not exceed store.DedupeTTL (exactly-once counting)
   receive_wait_time_seconds         = 20
   kms_master_key_id                 = var.kms_key_arn
   kms_data_key_reuse_period_seconds = 300

@@ -415,7 +415,7 @@ one-line change; nothing below has been deployed.
 - **Walkthrough accuracy review (2026-10-15):** every README walkthrough claim checked against code, Terraform and tests. Fixed:
   - the testing table said 57 `terraform test` runs (actual 60); `check_doc_facts.py` now derives this count too;
   - design §1 lists F1–F9 with IDs, as the walkthrough cites them;
-  - ALB + WAF fixed cost ~$30/month (was ~$28; [cost.md](docs/cost.md) has $28–31) in README and ADR-0012.
+  - ALB + WAF fixed cost ~$30/month (was ~$28; [cost.md](docs/cost.md) has $28–31) in README and [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md).
 - **Checks:**
 
 | Check | Command | Result | Evidence |
@@ -441,6 +441,33 @@ one-line change; nothing below has been deployed.
 | No trailers | `git log main --tags --format=%B \| grep -ci co-authored` | ✅ | 0 |
 | Tags | each tag's old target mapped to its new target | ✅ | 11/11 |
 
+## Post-M9: external review fixes — 🟡 closed-local
+
+- **Date:** 2026-10-15
+- **Why:** an external code review reported 8 findings and 4 doc errors; all were verified against the code and fixed, each with a regression test that fails without the fix (negative probe recorded below).
+- **Fixes:**
+  - **WAF sampling exposed API keys** (sampling ignores log redaction): sampling off on the web ACL and every rule ([ADR-0029](docs/adr/0029-edge-log-privacy.md)).
+  - **Disabled link could be re-cached** by a racing fill: invalidation leaves a 10 s fence, fills are `SET NX`, fills slower than 5 s skip the write ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md)).
+  - **In-batch repeat of a failed event was acknowledged:** repeats take the first copy's result (no click was lost; the outcome was wrong).
+  - **Concurrent idempotent creates made two links:** atomic claim (`SET NX`, 30 s) before the create; a repeat in flight gets 409 `request_in_progress`; failures release the claim.
+  - **Stale scan verdict could disable a replaced URL:** `ApplyScan` takes the scanned URL and checks it inside the conditional update.
+  - **Approval preceded the plan:** per environment, a read-only `plan-<env>` job publishes the saved plan and its SHA-256; the approval-gated job applies that plan only if the hash matches ([ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)). New bootstrap roles `shortener-ci-plan-{dev,prod}`.
+  - **CI fell back to defaults:** committed `infra/envs/<env>/deploy.tfvars` (replaces `example.tfvars`) used by every plan; the overlay holds only `alert_email` (now `sensitive`) and the image tag.
+  - **Dedupe marker expired before queue retention:** TTL 4 days from when it is written; a Terraform test keeps queue retention ≤ 4 days.
+  - **Docs:** privacy claim corrected; CloudFront logs now use a field allowlist (no IPs, referrers, user agents, query strings, cookies) and WAF logs keep only blocked/counted requests; runbook disable command (JSON `reason`, content type); stats access pattern; [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md) link in this file.
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Full regression | `make ci` | ✅ | lint 0; coverage 97.6 %; test-scripts OK (incl. saved-plan: altered, missing, other-environment and malformed plans refused); govulncheck clean; gitleaks 35 commits clean; integration 17 tests 79 s; images arm64, UID 65532, 15.6–17.2 MB; checkov 911/0/75; 61 `terraform test` runs; 47/47 diagrams, 466/466 links; 30 ADRs; doc facts OK; pins OK; zizmor clean; deploy gate OK |
+| Regression tests fail without the fix | negative probes | ✅ | fence-blind fill → `TestResolveFillRacingDisable` caches the phishing URL; plain `SET` claim → 50/50 concurrent claims win; no URL check → stale verdict disables the new URL; repeat not propagated → `[Failed Duplicate]`; click-time TTL → marker TTL check fails; sampling on, `c-ip` logged → edge tests fail |
+| Deploy gate | `scripts/check-deploy-gate.sh` + 5 negative probes | ✅ | rejects: apply job not depending on its plan job, apply without the saved-plan check, apply role in a plan job, AWS role outside the four environments, a push trigger |
+| Workflows | `zizmor --persona auditor` | ✅ | no findings |
+
+- **Decisions / ADRs:** [ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md), [ADR-0029](docs/adr/0029-edge-log-privacy.md), [ADR-0030](docs/adr/0030-consistency-under-concurrency.md); status notes on [ADR-0008](docs/adr/0008-elasticache-serverless-valkey.md)/0010/0012/0016/0018/0027.
+- **Deviations from SPEC:** N6: WAF logs of blocked/counted requests keep the client IP (WAF cannot redact it; 14/90 days). §5.2: dedupe marker TTL is write time + 4 days (SPEC: now + 3 days). §14: per-environment plan job before the approval-gated apply.
+- **Pending (closed-local):** the new bootstrap roles, edge logging settings and plan hand-over are verified only in the pending cloud checks below (items 2, 16, 17, 19).
+
 ## 📋 Pending cloud checks summary
 
 Complete and ordered; every ☁️ mutating step is plan → 👤 approve → apply of
@@ -449,12 +476,12 @@ instructs it.
 
 1. 👤 **Credentials:** `aws login` (the CLI session expired during M6–M9) with an admin **role session**, not root access keys.
 2. **Bootstrap:** create `infra/bootstrap/terraform.tfvars`; `make bootstrap` → approve → `APPROVED=yes make bootstrap-apply`.
-3. **Dev phase 1:** `infra/envs/dev/terraform.tfvars` already exists locally (repository, owner, `alert_email`); `make plan ENV=dev` (plan invariants must print OK; **first real-provider plan of everything added since M5**, so expect to fix issues here) → approve → `APPROVED=yes make apply ENV=dev`.
+3. **Dev phase 1:** settings are in the committed `infra/envs/dev/deploy.tfvars`; the local, gitignored `terraform.tfvars` holds `alert_email` (it may still repeat repository and owner); `make plan ENV=dev` (plan invariants must print OK; **first real-provider plan of everything added since M5**, so expect to fix issues here) → approve → `APPROVED=yes make apply ENV=dev`.
 4. **Verify foundation:** DynamoDB PITR/SSE, S3 BPA, SQS SSE/redrive, Valkey available with IAM auth, secrets exist without values.
 5. 👤 Confirm the SNS subscription email (`aws sns list-subscriptions-by-topic` shows no `PendingConfirmation`).
 6. 👤 `make seed-secrets ENV=dev`; verify secret versions (metadata only).
 7. **Images:** `make images-oci` (clean commit) → approve → `APPROVED=yes make push-images ENV=dev` (digests verified).
-8. **Dev phase 2:** `enable_services = true`, `image_tag = <printed tag>`; `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev`.
+8. **Dev phase 2:** add `enable_services = true` and `image_tag = <printed tag>` to the local `terraform.tfvars`; `make plan ENV=dev` → approve → `APPROVED=yes make apply ENV=dev`.
 9. **Services healthy:** all services steady, targets healthy. This also proves the endpoint data perimeter (ECR pull, Logs, Secrets, SQS through endpoints).
 10. **Smoke:** create dev API keys straight into env vars (README step 6); `SMOKE_API_KEY_2=… make smoke-env ENV=dev` (includes ALB-unreachable); then `SMOKE_WAF_BURST=true make smoke-env ENV=dev` last (429 + `Retry-After`).
 11. **Resilience:** manual nightly run succeeds (runbook §5.12); forced bad deploy (non-existent `image_tag`, throwaway apply) → circuit-breaker rollback recorded; re-apply the good tag.
@@ -462,7 +489,8 @@ instructs it.
 13. **Alerts:** `aws cloudwatch set-alarm-state --alarm-name shortener-dev-dlq --state-value ALARM --state-reason test` → 👤 email received; dashboard `shortener-dev` shows data in every widget.
 14. **Load baseline:** `LOAD_API_KEY=… make load BASE_URL=<cloudfront>`; `scripts/load-report.sh dev <start> <end>`; record RPS, p50/p95/p99, error rate, cache hit ratio in GATES (M6).
 15. **Cost:** ≥ 24 h after step 3: bootstrap `activate_cost_allocation_tag = true` → plan → approve → apply; ≥ 3 days: measured spend into cost.md §7.
-16. 👤 **CI/CD setup:** push to GitHub (`perspectivism/url-shortener-ecs-fargate`), configure variables, environments (`prod` required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
-17. **CD:** 👤 start **Actions → deploy → Run workflow** on `main` → 👤 approve `dev` → dev push (verified digests), apply, smoke green → the prod job **waits for approval** (not approved by the agent). Merges alone never deploy.
+16. 👤 **CI/CD setup:** push to GitHub (`perspectivism/url-shortener-ecs-fargate`), configure variables, the four environments (`dev-plan`/`prod-plan` without reviewers; `dev`/`prod` with required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
+17. **CD:** 👤 start **Actions → deploy → Run workflow** on `main` → `plan-dev` prints the plan and stores it under `plans/dev/` in the state bucket → 👤 read it and approve `dev` → hash verified, push (verified digests), apply, smoke green → `plan-prod` prints the prod plan → the prod job **waits for approval** (not approved by the agent). Merges alone never deploy.
 18. **Destroy plans (read-only):** `make plan-destroy ENV=dev` (and `ENV=prod` if deployed); bootstrap: `terraform -chdir=infra/bootstrap plan -destroy -var-file=terraform.tfvars` against the S3 backend — all succeed.
-19. **Only if requested:** `make teardown` (typed confirmation per step), then `make verify-teardown` → nothing left except KMS keys pending deletion.
+19. **Edge privacy and sampling (after phase 2):** `aws wafv2 get-web-acl` shows `SampledRequestsEnabled: false` everywhere; a CloudFront log record has no `c-ip`, `x-forwarded-for`, referrer, user agent, query or cookie fields; the WAF log group receives only BLOCK/COUNT records (e.g. after the WAF burst smoke test).
+20. **Only if requested:** `make teardown` (typed confirmation per step), then `make verify-teardown` → nothing left except KMS keys pending deletion.

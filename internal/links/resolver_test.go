@@ -168,3 +168,78 @@ func TestEntryFor(t *testing.T) {
 		t.Fatalf("min ttl: %v %+v", ttl, e)
 	}
 }
+
+// pausingRepo reads the link, then waits: the window in which a mutation can
+// land between a fill's DynamoDB read and its cache write.
+type pausingRepo struct {
+	*linkstest.Repo
+	read, release chan struct{}
+}
+
+func (p *pausingRepo) GetLink(ctx context.Context, code string) (links.Link, error) {
+	l, err := p.Repo.GetLink(ctx, code)
+	close(p.read)
+	<-p.release
+	return l, err
+}
+
+// Regression (review finding 2): a fill that read the active link must not
+// write it back after an admin disable invalidated the cache.
+func TestResolveFillRacingDisable(t *testing.T) {
+	base := linkstest.NewRepo()
+	base.Put(links.Link{Code: "evil", OwnerID: "o", LongURL: "https://phish.example", Status: links.StatusActive, CreatedAt: t0, UpdatedAt: t0})
+	cache := linkstest.NewCache()
+	repo := &pausingRepo{Repo: base, read: make(chan struct{}), release: make(chan struct{})}
+	r := newResolver(repo, cache, &linkstest.Counter{}, t0)
+	svc := links.NewService(links.ServiceDeps{Repo: base, Cache: cache, Now: func() time.Time { return t0.Add(time.Second) }})
+
+	done := make(chan links.Resolution)
+	go func() {
+		res, _ := r.Resolve(context.Background(), "evil")
+		done <- res
+	}()
+	<-repo.read // the fill has read the active link
+	if _, err := svc.Disable(context.Background(), "evil", "phishing"); err != nil {
+		t.Fatal(err)
+	}
+	close(repo.release) // ...and now tries to cache it
+	<-done              // this in-flight request was ordered before the disable
+
+	if e, ok := cache.Entry("evil"); ok {
+		t.Fatalf("stale entry cached after disable: %+v", e)
+	}
+	r2 := newResolver(base, cache, &linkstest.Counter{}, t0.Add(2*time.Second))
+	if res, _ := r2.Resolve(context.Background(), "evil"); res.Outcome != links.OutcomeGone {
+		t.Fatalf("after disable: outcome %v, want gone", res.Outcome)
+	}
+	cache.ExpireFences()
+	if res, _ := r2.Resolve(context.Background(), "evil"); res.Outcome != links.OutcomeGone {
+		t.Fatalf("after the fence: outcome %v, want gone", res.Outcome)
+	}
+	if e, ok := cache.Entry("evil"); !ok || e.Status != links.StatusDisabled || e.URL != "" {
+		t.Fatalf("after the fence the disabled entry is cached: %+v %v", e, ok)
+	}
+}
+
+// A fill slower than half the fence (a paused task) skips the cache write.
+func TestResolveSlowFillSkipsCache(t *testing.T) {
+	repo := linkstest.NewRepo()
+	repo.Put(links.Link{Code: "slow", LongURL: "https://example.com", Status: links.StatusActive})
+	cache := linkstest.NewCache()
+	now := t0
+	calls := 0
+	clock := func() time.Time { // the second reading is after the DynamoDB read
+		calls++
+		if calls > 1 {
+			return now.Add(links.FenceTTL/2 + time.Millisecond)
+		}
+		return now
+	}
+	r := links.NewResolver(cache, repo, &linkstest.Counter{}, slog.New(slog.DiscardHandler), clock)
+	if res, err := r.Resolve(context.Background(), "slow"); err != nil || res.Outcome != links.OutcomeFound {
+		t.Fatalf("resolve: %+v %v", res, err)
+	}
+	if _, ok := cache.Entry("slow"); ok {
+		t.Fatal("a slow fill must not write the cache")
+	}
+}

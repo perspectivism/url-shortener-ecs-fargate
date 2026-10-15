@@ -40,8 +40,8 @@ must_ignore=(
 must_track=(
   .env.example
   example.tfvars
-  infra/envs/dev/example.tfvars
-  infra/envs/prod/example.tfvars
+  infra/envs/dev/deploy.tfvars
+  infra/envs/prod/deploy.tfvars
   infra/envs/dev/backend.hcl.example
 )
 

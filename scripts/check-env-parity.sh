@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# dev and prod must deploy the same configuration; only variable defaults differ.
+# dev and prod must deploy the same configuration; only variable defaults and
+# the committed per-environment settings (deploy.tfvars, ADR-0028) differ.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../infra/envs"
 fail=0
-mapfile -t files < <(cd dev && find . -maxdepth 1 \( -name '*.tf' -o -name example.tfvars \) ! -name variables.tf -printf '%f\n' | sort)
-mapfile -t prod_files < <(cd prod && find . -maxdepth 1 \( -name '*.tf' -o -name example.tfvars \) ! -name variables.tf -printf '%f\n' | sort)
+mapfile -t files < <(cd dev && find . -maxdepth 1 -name '*.tf' ! -name variables.tf -printf '%f\n' | sort)
+mapfile -t prod_files < <(cd prod && find . -maxdepth 1 -name '*.tf' ! -name variables.tf -printf '%f\n' | sort)
 if [[ "${files[*]}" != "${prod_files[*]}" ]]; then
   echo "FAIL: envs/dev and envs/prod contain different files" >&2
   fail=1

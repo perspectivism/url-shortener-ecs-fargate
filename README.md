@@ -100,7 +100,7 @@ flowchart LR
 - **Links:**
   - short links with optional custom aliases and expiry;
   - 302 redirects; 404 for unknown codes, 410 for expired, disabled or deleted links;
-  - idempotent creates (`Idempotency-Key`).
+  - idempotent creates (`Idempotency-Key`), safe under concurrent retries.
 - **Analytics:**
   - clicks over time, unique visitors, top referrer hosts, countries, devices and browsers;
   - counted exactly once from an at-least-once queue, in batched writes so a
@@ -109,7 +109,12 @@ flowchart LR
   - Google Safe Browsing checks at create time and nightly;
   - admin kill switch;
   - WAF rate limits.
-- **Privacy:** no raw IPs stored anywhere; per-day keyed HMAC visitor IDs; referrer host only.
+- **Privacy:**
+  - application data holds no IPs: per-day keyed HMAC visitor IDs, referrer host only;
+  - CloudFront logs exclude IPs, referrers and user agents;
+  - WAF logs keep the client IP only for blocked or counted requests (14 days
+    in dev, 90 in prod), since WAF cannot redact it
+    ([ADR-0029](docs/adr/0029-edge-log-privacy.md)).
 - **Operations:**
   - one encrypted SNS topic for 14 alarms, budgets and anomaly alerts;
   - a dashboard and a runbook section for every alarm.
@@ -183,7 +188,9 @@ make bootstrap                      # review the plan
 APPROVED=yes make bootstrap-apply   # applies it and migrates its state into S3
 
 # 2. Phase 1: network, data, cache, secrets, ECR
-cp infra/envs/dev/example.tfvars infra/envs/dev/terraform.tfvars     # edit repository, owner, alert_email
+# Settings are committed in infra/envs/dev/deploy.tfvars (repository, owner, overrides).
+# Your alert address stays out of git, in the gitignored per-run overlay:
+echo 'alert_email = "you@example.com"' > infra/envs/dev/terraform.tfvars
 make plan ENV=dev && APPROVED=yes make apply ENV=dev
 
 # 3. Secret values: hidden prompts in your terminal, never in git or state
@@ -192,7 +199,7 @@ make seed-secrets ENV=dev
 # 4. Images: built once from a clean commit, pushed with digest verification
 make images-oci && APPROVED=yes make push-images ENV=dev
 
-# 5. Phase 2: set enable_services = true and image_tag = "<printed tag>" in terraform.tfvars
+# 5. Phase 2: add enable_services = true and image_tag = "<printed tag>" to terraform.tfvars
 make plan ENV=dev && APPROVED=yes make apply ENV=dev
 
 # 6. Smoke test through CloudFront (API key created straight into a variable)
@@ -206,8 +213,10 @@ make teardown
 
 After the one-time setup in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin),
 deploys run through GitHub Actions, but never automatically. You start the
-`deploy` workflow by hand, and the dev and prod environments each wait for a
-reviewer's approval ([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md)).
+`deploy` workflow by hand. For each environment a read-only job plans first,
+and a reviewer approves that saved plan before it is applied
+([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md),
+[ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
 
 ## 🎤 Interview Walkthrough
 
@@ -250,8 +259,11 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ⚖️ **Trade-off:** API keys instead of OAuth/Cognito. Simpler and
   machine-to-machine, but without user login.
 - ❓ **Follow-ups:**
-  - *"Idempotency?"* The response is stored per owner and key for 24 h, with a
-    body fingerprint; a different body → 400.
+  - *"Idempotency?"* The key is claimed atomically in Valkey before the create,
+    so concurrent retries on different tasks make one link (a repeat still in
+    flight gets 409). The response is stored per owner and key for 24 h, with
+    a body fingerprint; a different body → 400
+    ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md)).
 - 📎 [ADR-0015](docs/adr/0015-api-key-authentication.md)
 
 ### 4. Data model and why DynamoDB
@@ -309,14 +321,19 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 
 - 🗣️ **Say:** "Cache-aside in Valkey: a positive entry for up to 1 h, a
   negative entry for 60 s (code scans never reach DynamoDB), singleflight per
-  code against stampedes, and delete-on-write invalidation. Any cache error
-  fails open to DynamoDB."
+  code against stampedes. Writes invalidate with a short fence that a racing
+  fill can't overwrite. Any cache error fails open to DynamoDB."
 - 🔍 **Show:** [design §7](docs/design.md#7-caching);
   [`internal/links/resolver.go`](internal/links/resolver.go).
 - ⚖️ **Trade-off:** if both invalidation attempts fail, a link can stay stale
   for up to 1 h. That case is alarmed (`cache-invalidation-failed`), and the
   runbook re-issues the change.
 - ❓ **Follow-ups:**
+  - *"Race between a cache fill and a disable?"* A fill that read the link
+    before the disable could write it back after the `DEL`. So a write
+    leaves a 10 s fence instead, fills are `SET NX`, and a fill slower than
+    5 s skips the write; a test reproduces the race
+    ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md)).
   - *"Why not DAX?"* Valkey also serves rate limits, idempotency and
     HyperLogLog uniques. Auth is IAM tokens, not passwords.
   - *"Cache full?"* Serverless evicts LRU keys that have a TTL, and every key
@@ -344,8 +361,10 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
     to ~90 clicks), not once per click. That is ~5× cheaper and keeps the item
     far below DynamoDB's per-item limit ([ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md)).
   - *"Poison messages?"* They go to the DLQ after 5 receives; the redrive
-    runbook works within 3 days.
-  - *"Privacy?"* Per-day HMAC visitor IDs; raw IPs are never stored.
+    runbook works within 4 days, the dedupe markers' lifetime.
+  - *"Privacy?"* Per-day HMAC visitor IDs; the application never stores IPs.
+    CloudFront logs exclude them; WAF logs keep them only for blocked
+    requests, because WAF can't redact IPs ([ADR-0029](docs/adr/0029-edge-log-privacy.md)).
   - *"How long is data kept?"* Counters for 13 months (via TTL), including
     after a link is deleted; raw events 13 months in prod ([ADR-0025](docs/adr/0025-analytics-retention-13-months.md)).
 - 📎 [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md), [ADR-0025](docs/adr/0025-analytics-retention-13-months.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md), [ADR-0018](docs/adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)
@@ -356,7 +375,7 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   time and nightly, there is an admin kill switch, and WAF rate rules answer
   429. Infrastructure has no public origin, least-privilege roles, endpoint
   policies that block exfiltration, and secrets that never touch git or Terraform state."
-- 🔍 **Show:** [threat model](docs/threat-model.md) (52 STRIDE rows, none
+- 🔍 **Show:** [threat model](docs/threat-model.md) (61 STRIDE rows, none
   open); [design §9](docs/design.md#9-abuse-prevention-and-security).
 - ⚖️ **Trade-off:** WAF may block some legitimate URLs (for example ones with IP
   literals); this is accepted and tuned from the WAF logs.
@@ -378,8 +397,11 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   Fargate instead of Lambda, for warm connection pools.
 - ❓ **Follow-ups:**
   - *"Deploys?"* Images are built once and the same digests are promoted.
-    Nothing deploys automatically: a human starts the workflow, and dev and
-    prod each wait for an approval. Rolling deploys use the circuit breaker.
+    Nothing deploys automatically: a human starts the workflow; for each
+    environment a read-only job plans, and a reviewer approves that saved
+    plan, which is applied only if its hash matches. Settings are committed,
+    so CI never falls back to defaults. Rolling deploys use the circuit breaker
+    ([ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
   - *"What's running in prod?"* The latest GitHub Release. The pipeline
     tags each commit that passes prod smoke tests and records its image
     digests ([ADR-0026](docs/adr/0026-release-versioning-with-tags.md)).
@@ -471,9 +493,9 @@ Valkey's minimum. Levers and the full model are in [docs/cost.md](docs/cost.md).
 | Layer | Command | What it proves |
 | --- | --- | --- |
 | Unit | `make test` | ≈ 98 % coverage of `internal/` (gate 80 %), race detector, OpenAPI contract |
-| Integration | `make test-integration` | 16 end-to-end flows against emulators: dedupe under 500 replays, a hot link with 1,500 clicks each delivered twice (exact counts, batched writes), 10,000 creates with no duplicate codes, rate limits, graceful shutdown |
+| Integration | `make test-integration` | 17 end-to-end flows against emulators: dedupe under 500 replays, 30 concurrent creates with one idempotency key across 3 API tasks (one link), a hot link with 1,500 clicks each delivered twice (exact counts, batched writes), 10,000 creates with no duplicate codes, rate limits, graceful shutdown |
 | Images | `make images check-images scan-images` | arm64, UID 65532, ~16 MB, 0 fixable HIGH/CRITICAL |
-| Terraform | `make tf-check` | 60 `terraform test` runs; checkov, Trivy, tflint; plan, IAM, metric and suppression invariants |
+| Terraform | `make tf-check` | 61 `terraform test` runs; checkov, Trivy, tflint; plan, IAM, metric and suppression invariants |
 | Workflows | `make check-workflows` | actionlint, zizmor, every action pinned to a SHA |
 | Docs | `make docs-check` | markdownlint, Mermaid rendering, links, threat-model and ADR completeness |
 | Smoke | `make smoke-env ENV=dev` | the full flow through CloudFront, security negatives, direct ALB unreachable |
@@ -500,7 +522,7 @@ docs/           design, ADRs, threat model, runbook, cost
 | Document | Contents |
 | --- | --- |
 | [docs/design.md](docs/design.md) | System design, in walkthrough order |
-| [docs/adr/](docs/adr/README.md) | 27 architecture decision records, each with an Interview Angle |
+| [docs/adr/](docs/adr/README.md) | 30 architecture decision records, each with an Interview Angle |
 | [CHANGELOG.md](CHANGELOG.md) | Releases (tagged automatically when a commit reaches prod) |
 | [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, STRIDE, residual risks, suppressions |
 | [docs/runbook.md](docs/runbook.md) | SLOs, every alarm, deploy/rollback and operational procedures |

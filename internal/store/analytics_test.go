@@ -123,7 +123,7 @@ func canceled(codes ...string) error {
 
 func TestRecordClicksSingle(t *testing.T) {
 	l := &txLog{}
-	a := NewAnalytics(l.db(), "analytics", time.Second)
+	a := NewAnalytics(l.db(), "analytics", time.Second).WithClock(func() time.Time { return ts })
 	res, err := a.RecordClicks(context.Background(), []Click{click(false)})
 	if err != nil || res.Transactions != 1 || res.Results[0] != Recorded || len(l.calls) != 1 {
 		t.Fatalf("res=%+v err=%v calls=%d", res, err, len(l.calls))
@@ -313,6 +313,47 @@ func TestRecordClicksDuplicates(t *testing.T) {
 	res, err = a.RecordClicks(context.Background(), clicksFor("abc", 2, nil))
 	if err != nil || res.Transactions != 0 || res.Results[0] != Duplicate || res.Results[1] != Duplicate || len(l.calls) != 1 {
 		t.Fatalf("all duplicates: %+v %v", res, err)
+	}
+}
+
+// Regression (review finding 8): the marker outlives a backlog. Its TTL counts
+// from when it is written, not from the click, and covers the click queue's
+// 4-day retention.
+func TestDedupeMarkerOutlivesQueueRetention(t *testing.T) {
+	if DedupeTTL < 4*24*time.Hour {
+		t.Fatalf("DedupeTTL %v is shorter than the click queue retention (4 days)", DedupeTTL)
+	}
+	written := ts.Add(3 * 24 * time.Hour) // processed after a 3-day backlog
+	l := &txLog{}
+	a := NewAnalytics(l.db(), "analytics", time.Second).WithClock(func() time.Time { return written })
+	if _, err := a.RecordClicks(context.Background(), []Click{click(false)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s(l.calls[0].TransactItems[0].Put.Item["ttl"]); got != fmt.Sprint(written.Add(DedupeTTL).Unix()) {
+		t.Fatalf("marker ttl = %s, want write time + DedupeTTL (%d)", got, written.Add(DedupeTTL).Unix())
+	}
+}
+
+// Regression (review finding 3): a repeat of an event whose first copy failed
+// is Failed too, never Duplicate (which the worker would acknowledge).
+func TestRecordClicksRepeatOfFailedEventIsFailed(t *testing.T) {
+	l := &txLog{answer: func(int, *dynamodb.TransactWriteItemsInput) error {
+		return errors.New("access denied") // not retryable
+	}}
+	a := NewAnalytics(l.db(), "analytics", time.Second)
+	c := click(false)
+	res, err := a.RecordClicks(context.Background(), []Click{c, c})
+	if err == nil || res.Results[0] != Failed || res.Results[1] != Failed {
+		t.Fatalf("results = %v err=%v, want [Failed Failed]", res.Results, err)
+	}
+	// A repeat of an event DynamoDB already holds is a duplicate.
+	l = &txLog{answer: func(int, *dynamodb.TransactWriteItemsInput) error {
+		return canceled("ConditionalCheckFailed", "None", "None", "None", "None", "None")
+	}}
+	a = NewAnalytics(l.db(), "analytics", time.Second)
+	res, err = a.RecordClicks(context.Background(), []Click{c, c})
+	if err != nil || res.Results[0] != Duplicate || res.Results[1] != Duplicate {
+		t.Fatalf("results = %v err=%v, want [Duplicate Duplicate]", res.Results, err)
 	}
 }
 

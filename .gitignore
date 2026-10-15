@@ -13,6 +13,7 @@
 *.tfvars.json
 !*.example.tfvars
 !example.tfvars
+!infra/envs/*/deploy.tfvars
 backend.hcl
 !backend.hcl.example
 # Saved plans and their logs/summaries hold every variable value (including

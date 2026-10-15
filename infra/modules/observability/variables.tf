@@ -31,6 +31,7 @@ variable "kms_key_arn" {
 variable "alert_email" {
   description = "Email address subscribed to the alert topic (the recipient must confirm). Null creates no subscription."
   type        = string
+  sensitive   = true # personal data: kept out of plan output and CI logs
   default     = null
 
   validation {

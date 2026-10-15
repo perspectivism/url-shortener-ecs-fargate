@@ -45,7 +45,7 @@
 | N3 | Redirects never block on analytics | Response written first; bounded buffer; drop-and-count on overload |
 | N4 | Stats within 2 minutes | SQS → worker updates counters within seconds |
 | N5 | Exactly-once counting | Dedupe marker in the same DynamoDB transaction as the counters |
-| N6 | No raw IPs stored | Per-day keyed HMAC visitor IDs; referrer host only |
+| N6 | No raw IPs stored | Per-day keyed HMAC visitor IDs; referrer host only; CloudFront logs exclude IPs. Deviation: WAF logs of blocked/counted requests keep the client IP ([ADR-0029](adr/0029-edge-log-privacy.md)) |
 | N7 | No public ingress except CloudFront; no static keys; no secrets in git/state | VPC origin + internal ALB; OIDC; out-of-band secrets |
 | N8 | Documented idle cost; one-command teardown | [cost.md](cost.md); `make teardown` + `make verify-teardown` |
 
@@ -90,7 +90,7 @@ every response against it.
 
 | Method | Path | Scope | Notes |
 | --- | --- | --- | --- |
-| `POST` | `/links` | `links:write` | `{url, alias?, expires_at?}` → 201; `Idempotency-Key` (24 h, body fingerprint) |
+| `POST` | `/links` | `links:write` | `{url, alias?, expires_at?}` → 201; `Idempotency-Key` (24 h, body fingerprint; a concurrent repeat → 409 `request_in_progress`) |
 | `GET` | `/links` | `links:read` | newest first, opaque owner-bound cursor |
 | `GET` / `PATCH` / `DELETE` | `/links/{code}` | read / write | 404 for other owners (never 403); delete is soft → redirect 410 |
 | `GET` | `/links/{code}/stats` | `links:read` | ≤ 90-day range; daily series, uniques, top 10 per dimension |
@@ -109,7 +109,10 @@ Errors are `application/problem+json` with stable `code` values (`unsafe_url`,
   and would tie one owner's link to another owner's lifecycle (expiry,
   deletion, disable).
 - **Retries are handled separately.** A client that retries a create sends
-  the same `Idempotency-Key` and gets the same response back (24 h).
+  the same `Idempotency-Key` and gets the same response back (24 h). The key
+  is claimed atomically before the create, so concurrent retries on different
+  API tasks still produce one link
+  ([ADR-0030](adr/0030-consistency-under-concurrency.md)).
 - **The extra storage is negligible:** about 500 B per duplicate link.
 
 If a product wanted per-owner deduplication, a `gsi2` on `OWNER#id` +
@@ -168,7 +171,8 @@ Access patterns:
 - **Create:** conditional `PutItem`.
 - **Allocate IDs:** `UpdateItem ADD` on the counter.
 - **List an owner's links:** `gsi1` query.
-- **Stats:** one query on `STATS#code` over a date range.
+- **Stats:** queries on `STATS#code`: one over `DAY#` items for the date
+  range, plus one per dimension (referrers, countries, devices, browsers), each paginated.
 - **Count clicks:** `TransactWriteItems` per batch: each click's dedupe
   marker plus one summed update per counter (≤ 100 items, [ADR-0024](adr/0024-batched-exactly-once-click-counting.md)).
 
@@ -180,7 +184,7 @@ reads ignore expiry, so they only ever see data that is due to expire.
 | --- | --- | --- |
 | Link | until deleted; with an expiry, `expires_at` + 30 days | TTL `ttl` (redirect answers 410 from `expires_at` on, regardless) |
 | Daily and dimension counters, uniques | **13 months** after their day; deleting a link keeps them until then | TTL `ttl` set on every counter write |
-| Dedupe markers `EVENT#id` | 3 days | TTL `ttl` |
+| Dedupe markers `EVENT#id` | 4 days after they are written ([ADR-0030](adr/0030-consistency-under-concurrency.md)) | TTL `ttl` |
 | Raw click events (S3) | 30 days dev, 395 days (13 months) prod | S3 lifecycle |
 | Valkey keys | 60 s to 8 days | key TTL |
 
@@ -298,13 +302,16 @@ option 2 becomes necessary at scale anyway.
 | --- | --- | --- |
 | `l:{code}` | `{u, exp, st}` or `{nf: true}` | `min(1 h, exp − now)`; negative 60 s |
 | `rl:{owner}:{route}:{window}` | counter | window |
-| `idem:{owner}:{key}` | stored response + body fingerprint | 24 h |
+| `idem:{owner}:{key}` | claim (body fingerprint), then stored response | 30 s claim, then 24 h |
 | `hll:{code}:{date}` | HyperLogLog | 8 days |
 
 - **Stampede protection:** singleflight per code per task, so one DynamoDB
   read per miss per task.
 - **Negative cache:** code scans do not reach DynamoDB.
-- **Invalidation:** write DynamoDB first, then `DEL`. A failed `DEL` is
+- **Invalidation** ([ADR-0030](adr/0030-consistency-under-concurrency.md)):
+  write DynamoDB first, then replace the entry with a 10-second fence. Fills
+  are `SET NX`, so a fill that read the old link cannot write it back over
+  the fence; a fill slower than 5 s writes nothing. A failed invalidation is
   retried once, counted and alarmed, and staleness is bounded by the TTL.
 - **Failure mode:** every cache error fails open to DynamoDB
   ([ADR-0008](adr/0008-elasticache-serverless-valkey.md)).
@@ -370,20 +377,24 @@ flowchart LR
   questions (dedupe by `event_id`).
 - **Privacy** ([ADR-0018](adr/0018-privacy-hmac-visitor-ids-referrer-host-only.md)):
   the visitor ID is `HMAC(salt, ip | ua | date)`, the referrer is reduced to its
-  host, and the IP never leaves the redirect task.
+  host, and the IP never leaves the redirect task. At the edge
+  ([ADR-0029](adr/0029-edge-log-privacy.md)), CloudFront logs an allowlist of
+  fields without IPs, referrers or user agents. WAF logs only blocked and
+  counted requests, which carry the client IP (WAF cannot redact it), and
+  request sampling is off because it ignores log redaction.
 
 ## 9. Abuse prevention and security
 
 | Threat | Control |
 | --- | --- |
-| Phishing / malware links | Google Safe Browsing v5 at create/update + nightly rescan ([ADR-0021](adr/0021-url-safety-scanning-safe-browsing-v5.md)); URL validation (http(s) only, no credentials, no private IPs, not our own domain); admin kill switch |
+| Phishing / malware links | Google Safe Browsing v5 at create/update + nightly rescan, whose verdict applies only if the link still points at the scanned URL ([ADR-0021](adr/0021-url-safety-scanning-safe-browsing-v5.md), [ADR-0030](adr/0030-consistency-under-concurrency.md)); URL validation (http(s) only, no credentials, no private IPs, not our own domain); admin kill switch |
 | Floods, scanning | WAF per-IP rate rules (evaluated first, 429 + `Retry-After`), managed rule groups, negative cache, per-key rate limits |
 | Key theft, IDOR | Hashed 256-bit keys, scopes, owner checks returning 404, cursors bound to the owner |
 | Origin bypass, header spoofing | CloudFront VPC origin → internal ALB, SG admits only CloudFront ([ADR-0012](adr/0012-cloudfront-vpc-origin-internal-alb-waf.md)) |
 | Exfiltration from a task | Isolated subnets, endpoint data-perimeter policies, least-privilege roles, per-environment CMK ([ADR-0013](adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0023](adr/0023-iam-review-data-perimeter-and-waf-tuning.md)) |
 | Secrets | Secrets Manager values entered out of band; nothing in git, images or state ([ADR-0014](adr/0014-secrets-management.md)) |
 
-The full STRIDE analysis is in [threat-model.md](threat-model.md): 52 rows, all mitigated or accepted.
+The full STRIDE analysis is in [threat-model.md](threat-model.md): 61 rows, all mitigated or accepted.
 
 ## 10. Deployment architecture
 
@@ -429,7 +440,10 @@ flowchart TB
 - **Delivery** ([ADR-0017](adr/0017-cicd-github-oidc-rolling-deploys.md)):
   arm64 images are built once and pushed per environment with digest
   verification. Every deploy is started by hand and approved per environment
-  ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)). Each is a
+  ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)); reviewers
+  approve the saved plan that is then applied, and settings come from the
+  committed `deploy.tfvars`
+  ([ADR-0028](adr/0028-approve-the-saved-plan-versioned-environment-settings.md)). Each is a
   rolling update with the circuit breaker, through GitHub OIDC roles that
   carry a permissions boundary. A commit that
   passes prod smoke tests becomes the next GitHub Release (`v0.x.0`) with its

@@ -1,6 +1,6 @@
 # ADR-0018: Privacy — HMAC visitor IDs, referrer host only
 
-- **Status:** Accepted
+- **Status:** Accepted (extended to edge logs by [ADR-0029](0029-edge-log-privacy.md))
 - **Date:** 2026-10-14
 - **Deciders:** project owner, coding agent
 

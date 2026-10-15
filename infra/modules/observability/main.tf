@@ -128,11 +128,13 @@ resource "aws_sns_topic_policy" "alerts" {
 }
 
 resource "aws_sns_topic_subscription" "email" {
-  for_each = var.alert_email == null ? toset([]) : toset([var.alert_email])
+  # count, not for_each: the address is sensitive (it must stay out of plan
+  # output in CI logs), and sensitive values cannot be for_each keys.
+  count = var.alert_email == null ? 0 : 1
 
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
-  endpoint  = each.value
+  endpoint  = var.alert_email
 }
 
 # --- Alarms ------------------------------------------------------------------------

@@ -32,13 +32,23 @@ func TestCreateRedirectHeadersAndHead(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, got, v)
 		}
 	}
-	// The first GET populated the positive cache.
-	if v, err := env.valkey.Get(context.Background(), "l:"+code).Result(); err != nil || !strings.Contains(v, `"st":"active"`) {
-		t.Fatalf("positive cache entry = %q, %v", v, err)
+	// Create left an invalidation fence (ADR-0030): for up to 10 s the link is
+	// served from DynamoDB and no fill may cache it.
+	ctx := context.Background()
+	if v, _ := env.valkey.Get(ctx, "l:"+code).Result(); v != "!" {
+		t.Fatalf("after create, l:%s = %q, want the fence", code, v)
 	}
-
+	if ttl := env.valkey.TTL(ctx, "l:"+code).Val(); ttl <= 0 || ttl > 10*time.Second {
+		t.Fatalf("fence TTL = %v, want (0, 10s]", ttl)
+	}
+	// Once the fence is gone (expired; deleted here to keep the test fast),
+	// the next lookup populates the positive cache. HEAD resolves but is not counted.
+	env.valkey.Del(ctx, "l:"+code)
 	head := call(t, http.MethodHead, env.redirect.url+"/"+code, "", "", nil)
 	expectStatus(t, head, http.StatusFound, "")
+	if v, err := env.valkey.Get(ctx, "l:"+code).Result(); err != nil || !strings.Contains(v, `"st":"active"`) {
+		t.Fatalf("positive cache entry = %q, %v", v, err)
+	}
 
 	// GET produced exactly one click; HEAD produced none.
 	waitStats(t, "alice", code, 1, 0)
@@ -128,6 +138,51 @@ func TestIdempotentCreate(t *testing.T) {
 		t.Fatalf("replay differs:\n%s\n%s", a.Raw, b.Raw)
 	}
 	expectStatus(t, call(t, http.MethodPost, env.api.url+"/api/v1/links", env.keys["alice"], `{"url":"https://example.com/other"}`, hdr), http.StatusBadRequest, "invalid_request")
+}
+
+// Regression (review finding 4): concurrent creates with one Idempotency-Key,
+// spread over three API instances, create exactly one link. Each request gets
+// that link (201, possibly replayed) or 409 request_in_progress.
+func TestIdempotentCreateConcurrent(t *testing.T) {
+	hdr := map[string]string{"Idempotency-Key": "it-concurrent-" + env.runID}
+	body := `{"url":"https://example.com/idempotent-concurrent"}`
+	apis := []string{env.api.url, env.apiB.url, env.apiC.url}
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		codes  = map[string]int{}
+		status = map[int]int{}
+	)
+	for i := range 30 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := call(t, http.MethodPost, apis[i%len(apis)]+"/api/v1/links", env.keys["alice"], body, hdr)
+			mu.Lock()
+			defer mu.Unlock()
+			status[r.Status]++
+			switch r.Status {
+			case http.StatusCreated:
+				codes[str(r.Body, "code")]++
+			case http.StatusConflict:
+				if r.Body["code"] != "request_in_progress" {
+					t.Errorf("409 = %s", r.Raw)
+				}
+			default:
+				t.Errorf("unexpected %d: %s", r.Status, r.Raw)
+			}
+		}()
+	}
+	wg.Wait()
+	if len(codes) != 1 {
+		t.Fatalf("concurrent creates made %d links (%v); statuses %v", len(codes), codes, status)
+	}
+	// Once the first finished, a repeat is a replay of the same link.
+	r := call(t, http.MethodPost, env.apiB.url+"/api/v1/links", env.keys["alice"], body, hdr)
+	expectStatus(t, r, http.StatusCreated, "")
+	if _, ok := codes[str(r.Body, "code")]; !ok || r.Header.Get("Idempotent-Replayed") != "true" {
+		t.Fatalf("replay after the race: %s", r.Raw)
+	}
 }
 
 func TestRateLimit(t *testing.T) {

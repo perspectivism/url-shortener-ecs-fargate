@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -148,7 +149,7 @@ func TestLinkCache(t *testing.T) {
 		t.Fatalf("miss: ok=%v err=%v", ok, err)
 	}
 	exp := int64(1_900_000_000)
-	if err := lc.SetLink(ctx, "abc", links.CacheEntry{URL: "https://example.com", Exp: &exp, Status: links.StatusActive}, time.Hour); err != nil {
+	if err := lc.FillLink(ctx, "abc", links.CacheEntry{URL: "https://example.com", Exp: &exp, Status: links.StatusActive}, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := mr.Get("l:abc")
@@ -162,12 +163,38 @@ func TestLinkCache(t *testing.T) {
 	if !ok || err != nil || e.URL != "https://example.com" || *e.Exp != exp {
 		t.Fatalf("get: %+v %v %v", e, ok, err)
 	}
-	_ = lc.SetLink(ctx, "gone", links.CacheEntry{NotFound: true}, time.Minute)
+	_ = lc.FillLink(ctx, "gone", links.CacheEntry{NotFound: true}, time.Minute)
 	if raw, _ := mr.Get("l:gone"); raw != `{"nf":true}` {
 		t.Fatalf("negative wire format = %s", raw)
 	}
-	if err := lc.DeleteLink(ctx, "abc"); err != nil || mr.Exists("l:abc") {
-		t.Fatal("delete failed")
+	// Invalidation: the entry becomes a fence for links.FenceTTL that reads as
+	// a miss and that a racing fill (SET NX) cannot overwrite.
+	if err := lc.InvalidateLink(ctx, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := mr.Get("l:abc"); raw != fence || mr.TTL("l:abc") != links.FenceTTL {
+		t.Fatalf("fence = %q ttl %v", raw, mr.TTL("l:abc"))
+	}
+	if _, ok, err := lc.GetLink(ctx, "abc"); ok || err != nil {
+		t.Fatal("a fence reads as a miss")
+	}
+	if err := lc.FillLink(ctx, "abc", links.CacheEntry{URL: "https://stale.example", Status: links.StatusActive}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := mr.Get("l:abc"); raw != fence {
+		t.Fatalf("a fill overwrote the fence: %s", raw)
+	}
+	mr.FastForward(links.FenceTTL)
+	if err := lc.FillLink(ctx, "abc", links.CacheEntry{URL: "https://new.example", Status: links.StatusActive}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok, _ := lc.GetLink(ctx, "abc"); !ok || e.URL != "https://new.example" {
+		t.Fatalf("fill after the fence expired: %+v %v", e, ok)
+	}
+	// A fill never replaces an existing entry either.
+	_ = lc.FillLink(ctx, "abc", links.CacheEntry{URL: "https://other.example", Status: links.StatusActive}, time.Hour)
+	if e, _, _ := lc.GetLink(ctx, "abc"); e.URL != "https://new.example" {
+		t.Fatalf("fill replaced an entry: %+v", e)
 	}
 	_ = mr.Set("l:corrupt", "{not json")
 	if _, ok, err := lc.GetLink(ctx, "corrupt"); ok || err != nil {
@@ -178,11 +205,11 @@ func TestLinkCache(t *testing.T) {
 	if _, _, err := lc.GetLink(ctx, "abc"); err == nil {
 		t.Fatal("expected error when valkey is down")
 	}
-	if err := lc.SetLink(ctx, "abc", links.CacheEntry{}, time.Second); err == nil {
+	if err := lc.FillLink(ctx, "abc", links.CacheEntry{}, time.Second); err == nil {
 		t.Fatal("expected set error")
 	}
-	if err := lc.DeleteLink(ctx, "abc"); err == nil {
-		t.Fatal("expected del error")
+	if err := lc.InvalidateLink(ctx, "abc"); err == nil {
+		t.Fatal("expected invalidate error")
 	}
 }
 
@@ -221,5 +248,60 @@ func TestIdempotency(t *testing.T) {
 	}
 	if err := idem.Put(ctx, "alice", "k1", rec); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// Regression (review finding 4): concurrent requests with one key across API
+// tasks: exactly one claims it; the others see the claim, then the response.
+func TestIdempotencyClaimIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	mr := miniredis.RunT(t)
+	idem := NewIdempotency(redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1}))
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		wins int
+	)
+	for range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec, mine, err := idem.Claim(ctx, "alice", "k", "fp")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if !mine && (rec.Status != 0 || rec.Fingerprint != "fp") {
+				t.Errorf("loser saw %+v, want the pending claim", rec)
+			}
+			if mine {
+				mu.Lock()
+				wins++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if wins != 1 {
+		t.Fatalf("%d requests claimed the key, want 1", wins)
+	}
+	if ttl := mr.TTL(idemKey("alice", "k")); ttl != IdemClaimTTL {
+		t.Fatalf("claim ttl = %v", ttl)
+	}
+	if err := idem.Put(ctx, "alice", "k", IdemRecord{Fingerprint: "fp", Status: 201, Body: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if rec, mine, _ := idem.Claim(ctx, "alice", "k", "fp"); mine || rec.Status != 201 {
+		t.Fatalf("after Put: %+v mine=%v", rec, mine)
+	}
+	// Release lets a retry claim the key again.
+	_ = idem.Release(ctx, "alice", "k")
+	if _, mine, _ := idem.Claim(ctx, "alice", "k", "fp"); !mine {
+		t.Fatal("released key must be claimable")
+	}
+	// An abandoned claim expires.
+	mr.FastForward(IdemClaimTTL)
+	if _, mine, _ := idem.Claim(ctx, "alice", "k", "fp"); !mine {
+		t.Fatal("expired claim must be claimable")
 	}
 }

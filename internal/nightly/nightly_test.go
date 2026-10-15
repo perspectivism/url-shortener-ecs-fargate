@@ -115,7 +115,7 @@ func newWorld(sc links.Scanner, n int) *world {
 		}
 		w.repo.Put(links.Link{Code: code, LongURL: url, OwnerID: "o", Status: links.StatusActive, ScanStatus: st, LastScannedAt: scanned, UpdatedAt: old})
 		w.scan.all = append(w.scan.all, code)
-		_ = w.cache.SetLink(context.Background(), code, links.CacheEntry{URL: url, Status: links.StatusActive}, time.Hour)
+		w.cache.Put(code, links.CacheEntry{URL: url, Status: links.StatusActive}, time.Hour)
 	}
 	// A fresh, clean link that must not be rescanned and a deleted one.
 	w.repo.Put(links.Link{Code: "fresh", LongURL: "https://fresh.example/", Status: links.StatusActive, ScanStatus: links.ScanClean, LastScannedAt: &now})
@@ -193,7 +193,7 @@ func TestNightlyScannerDisabledAndFailures(t *testing.T) {
 
 type failingApply struct{}
 
-func (failingApply) ApplyScan(context.Context, string, bool) (bool, error) {
+func (failingApply) ApplyScan(context.Context, string, string, bool) (bool, error) {
 	return false, errors.New("dynamodb down")
 }
 

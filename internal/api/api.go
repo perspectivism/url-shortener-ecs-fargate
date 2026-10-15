@@ -39,10 +39,13 @@ type Limiter interface {
 	Allow(ctx context.Context, owner, route string, limit int, window time.Duration) ratelimit.Decision
 }
 
-// IdempotencyStore persists create responses.
+// IdempotencyStore persists create responses. Claim reserves a key atomically
+// across API tasks (Valkey SET NX); Put stores the response; Release drops a
+// claim whose request failed.
 type IdempotencyStore interface {
-	Get(ctx context.Context, owner, key string) (cache.IdemRecord, bool, error)
+	Claim(ctx context.Context, owner, key, fingerprint string) (cache.IdemRecord, bool, error)
 	Put(ctx context.Context, owner, key string, rec cache.IdemRecord) error
+	Release(ctx context.Context, owner, key string) error
 }
 
 // Deps wires a Server.

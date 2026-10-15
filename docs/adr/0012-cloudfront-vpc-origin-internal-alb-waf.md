@@ -1,6 +1,6 @@
 # ADR-0012: CloudFront VPC origin with internal ALB and WAF
 
-- **Status:** Accepted
+- **Status:** Accepted (edge logging changed by [ADR-0029](0029-edge-log-privacy.md): no WAF sampling, CloudFront field allowlist, WAF logs only for blocked/counted requests)
 - **Date:** 2026-10-14
 - **Deciders:** project owner, coding agent
 

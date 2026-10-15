@@ -16,8 +16,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-// DedupeTTL is how long event dedupe markers live (SPEC §5.2).
-const DedupeTTL = 3 * 24 * time.Hour
+// DedupeTTL is how long an event dedupe marker lives after it is written. It
+// must cover the click queue's 4-day retention: any redelivery of a counted
+// event arrives while its marker still exists (SPEC §5.2 says 3 days; a backlog
+// could outlive that, see GATES.md).
+const DedupeTTL = 4 * 24 * time.Hour
 
 // StatsRetentionMonths is how long daily and dimension counters are kept
 // (ADR-0025): 13 months allows year-over-year comparison. Counters outlive a
@@ -67,11 +70,25 @@ type Analytics struct {
 	db      DynamoDB
 	table   string
 	timeout time.Duration
+	now     func() time.Time
 }
 
 // NewAnalytics returns a repository for table.
 func NewAnalytics(db DynamoDB, table string, timeout time.Duration) *Analytics {
-	return &Analytics{db: db, table: table, timeout: timeout}
+	return &Analytics{db: db, table: table, timeout: timeout, now: time.Now}
+}
+
+// WithClock replaces the clock (tests).
+func (a *Analytics) WithClock(now func() time.Time) *Analytics {
+	a.now = now
+	return a
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 func statsPK(code string) string { return "STATS#" + code }
@@ -174,15 +191,16 @@ func newChunk(code string) *chunk {
 // redelivery.
 func (a *Analytics) RecordClicks(ctx context.Context, clicks []Click) (BatchResult, error) {
 	res := BatchResult{Results: make([]ClickResult, len(clicks))}
-	seen := make(map[string]bool, len(clicks))
+	first := make(map[string]int, len(clicks))
+	repeats := map[int]int{} // index -> index of the same event's first copy
 	byCode := map[string][]int{}
 	var codes []string
 	for i, c := range clicks {
-		if seen[c.EventID] { // the same event twice in one batch
-			res.Results[i] = Duplicate
+		if f, ok := first[c.EventID]; ok { // the same event twice in one batch
+			repeats[i] = f
 			continue
 		}
-		seen[c.EventID] = true
+		first[c.EventID] = i
 		if _, ok := byCode[c.Code]; !ok {
 			codes = append(codes, c.Code)
 		}
@@ -199,6 +217,16 @@ func (a *Analytics) RecordClicks(ctx context.Context, clicks []Click) (BatchResu
 			ch.add(i, clicks[i])
 		}
 		firstErr = errors.Join(firstErr, a.commit(ctx, clicks, ch, &res))
+	}
+	// A repeat shares its first copy's fate: a duplicate once that copy is
+	// counted (or already was), but Failed while it is not, so neither copy is
+	// acknowledged before the event is counted.
+	for i, f := range repeats {
+		if res.Results[f] == Failed {
+			res.Results[i] = Failed
+		} else {
+			res.Results[i] = Duplicate
+		}
 	}
 	if firstErr != nil {
 		return res, fmt.Errorf("record clicks: %w", firstErr)
@@ -267,7 +295,7 @@ func (a *Analytics) transact(ctx context.Context, clicks []Click, ch *chunk) err
 			Item: map[string]types.AttributeValue{
 				"pk":  sv("EVENT#" + c.EventID),
 				"sk":  sv(skMeta),
-				"ttl": nv(c.TS.Add(DedupeTTL).Unix()),
+				"ttl": nv(later(a.now(), c.TS).Add(DedupeTTL).Unix()),
 			},
 			ConditionExpression: aws.String("attribute_not_exists(pk)"),
 		}})

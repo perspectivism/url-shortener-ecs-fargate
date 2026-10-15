@@ -1,6 +1,6 @@
 # ADR-0027: Manual approval for every deploy
 
-- **Status:** Accepted (supersedes the automatic dev deploy of [ADR-0017](0017-cicd-github-oidc-rolling-deploys.md))
+- **Status:** Accepted (supersedes the automatic dev deploy of [ADR-0017](0017-cicd-github-oidc-rolling-deploys.md)); job layout superseded by [ADR-0028](0028-approve-the-saved-plan-versioned-environment-settings.md): reviewers now approve the saved plan
 - **Date:** 2026-10-15
 - **Deciders:** project owner, coding agent
 

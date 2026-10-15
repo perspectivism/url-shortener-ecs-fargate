@@ -15,11 +15,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$ROOT/.tools/bin:$PATH" TF_IN_AUTOMATION=1
 
-varfile_for() {
-  local d="$1" f
-  for f in terraform.tfvars.json terraform.tfvars example.tfvars; do
-    [[ -f "$d/$f" ]] && { echo "$f"; return; }
-  done
+# -var-file arguments for an env root (scripts/tf-varfiles.sh, ADR-0028), in var_args.
+set_var_args() {
+  local f
+  var_args=()
+  while read -r f; do var_args+=("-var-file=$f"); done < <("$ROOT/scripts/tf-varfiles.sh" "$(basename "$1")")
 }
 
 init_env() {
@@ -45,7 +45,8 @@ need_approval() {
 plan_destroy() {
   local env="$1" d="$ROOT/infra/envs/$1"
   init_env "$d"
-  (cd "$d" && terraform plan -destroy -input=false -var-file="$(varfile_for "$d")" -out=tfplan-destroy -no-color >plan-destroy.log) ||
+  set_var_args "$d"
+  (cd "$d" && terraform plan -destroy -input=false "${var_args[@]}" -out=tfplan-destroy -no-color >plan-destroy.log) ||
     { tail -30 "$d/plan-destroy.log" >&2; exit 1; }
   summary "$d" tfplan-destroy | tee "$d/plan-destroy-summary.txt"
   echo "saved: infra/envs/$env/tfplan-destroy (apply with: APPROVED=yes make destroy ENV=$env)"
@@ -71,7 +72,8 @@ unprotect() {
   local env="$1" d="$ROOT/infra/envs/$1"
   [[ "$env" == prod ]] || { echo "unprotect is only needed for prod (dev already has force_destroy = true)" >&2; exit 2; }
   init_env "$d"
-  (cd "$d" && terraform plan -input=false -var-file="$(varfile_for "$d")" -var force_destroy=true -out=tfplan-unprotect -no-color >plan-unprotect.log) ||
+  set_var_args "$d"
+  (cd "$d" && terraform plan -input=false "${var_args[@]}" -var force_destroy=true -out=tfplan-unprotect -no-color >plan-unprotect.log) ||
     { tail -30 "$d/plan-unprotect.log" >&2; exit 1; }
   (cd "$d" && terraform show -json tfplan-unprotect) | jq -r '
     [.resource_changes[] | select(.change.actions != ["no-op"] and .change.actions != ["read"])] |

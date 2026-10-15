@@ -2,7 +2,9 @@
 # Writes the CI-side configuration for one root from environment variables (set
 # from GitHub environment variables in the workflows; nothing secret):
 #   infra/<root>/backend.hcl          TF_STATE_BUCKET, TF_STATE_KMS_KEY_ARN, AWS_REGION
-#   infra/<root>/terraform.tfvars.json REPOSITORY, OWNER, [ALERT_EMAIL], [IMAGE_TAG]
+#   infra/<root>/terraform.tfvars.json [ALERT_EMAIL], [IMAGE_TAG]: the per-run
+#   overlay on the committed deploy.tfvars (ADR-0028), which holds every other
+#   setting; REPOSITORY (github.repository) must match its `repository`.
 # IMAGE_TAG set => enable_services = true (phase 2). Values are JSON-encoded by
 # jq, so no input can inject HCL. Both files are gitignored.
 # Usage: scripts/ci-config.sh <dev|prod>
@@ -15,7 +17,6 @@ dir="$ROOT/infra/envs/$env_name"
 : "${TF_STATE_BUCKET:?TF_STATE_BUCKET (bootstrap output state_bucket)}"
 : "${TF_STATE_KMS_KEY_ARN:?TF_STATE_KMS_KEY_ARN (bootstrap output state_kms_key_arn)}"
 : "${REPOSITORY:?REPOSITORY (owner/name)}"
-: "${OWNER:?OWNER (Owner tag)}"
 region="${AWS_REGION:-us-east-1}"
 # backend.hcl is HCL: allow only plain bucket/ARN/region characters (no "${").
 [[ "$TF_STATE_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{2,62}$ ]] || { echo "invalid TF_STATE_BUCKET" >&2; exit 2; }
@@ -26,9 +27,13 @@ jq -rn --arg b "$TF_STATE_BUCKET" --arg k "envs/$env_name/terraform.tfstate" --a
   '"bucket       = \($b | tojson)\nkey          = \($k | tojson)\nregion       = \($r | tojson)\nencrypt      = true\nkms_key_id   = \($kms | tojson)\nuse_lockfile = true"' \
   >"$dir/backend.hcl"
 
-jq -n --arg repo "$REPOSITORY" --arg owner "$OWNER" --arg region "$region" \
-  --arg email "${ALERT_EMAIL:-}" --arg tag "${IMAGE_TAG:-}" '
-  {repository: $repo, owner: $owner, region: $region}
+# The committed settings must describe this repository (a fork deploys its own).
+committed="$(sed -nE 's/^[[:space:]]*repository[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' "$dir/deploy.tfvars")"
+[[ "$committed" == "$REPOSITORY" ]] || { echo "infra/envs/$env_name/deploy.tfvars repository is '$committed', this repository is '$REPOSITORY'" >&2; exit 2; }
+[[ -z "${IMAGE_TAG:-}" || "$IMAGE_TAG" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid IMAGE_TAG" >&2; exit 2; }
+
+jq -n --arg email "${ALERT_EMAIL:-}" --arg tag "${IMAGE_TAG:-}" '
+  {}
   + (if $email != "" then {alert_email: $email} else {} end)
   + (if $tag != "" then {enable_services: true, image_tag: $tag} else {} end)' >"$dir/terraform.tfvars.json"
 

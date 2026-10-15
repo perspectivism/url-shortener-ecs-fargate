@@ -34,7 +34,7 @@ type RescanSource interface {
 
 // ScanApplier records verdicts (links.Service).
 type ScanApplier interface {
-	ApplyScan(ctx context.Context, code string, unsafe bool) (bool, error)
+	ApplyScan(ctx context.Context, code, scannedURL string, unsafe bool) (bool, error)
 }
 
 // Deps wires a Job.
@@ -172,9 +172,9 @@ func (j *Job) scanBatch(ctx context.Context, batch []links.Link, sum *Summary, m
 	}
 	for _, l := range batch {
 		unsafe := verdicts[l.LongURL].Unsafe
-		disabled, err := j.d.Apply.ApplyScan(ctx, l.Code, unsafe)
-		if errors.Is(err, links.ErrNotFound) {
-			continue // deleted meanwhile
+		disabled, err := j.d.Apply.ApplyScan(ctx, l.Code, l.LongURL, unsafe)
+		if errors.Is(err, links.ErrNotFound) || errors.Is(err, links.ErrStaleScan) {
+			continue // deleted or given a new destination meanwhile
 		}
 		if err != nil {
 			return fmt.Errorf("apply scan %s: %w", l.Code, err)

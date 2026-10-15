@@ -31,30 +31,39 @@ func (lc *LinkCache) GetLink(ctx context.Context, code string) (links.CacheEntry
 	if err != nil {
 		return links.CacheEntry{}, false, fmt.Errorf("cache get: %w", err)
 	}
+	if string(b) == fence {
+		return links.CacheEntry{}, false, nil
+	}
 	var e links.CacheEntry
 	if err := json.Unmarshal(b, &e); err != nil {
-		// A corrupt entry is treated as a miss and overwritten by the reload.
+		// A corrupt entry is treated as a miss; it expires with its TTL.
 		return links.CacheEntry{}, false, nil
 	}
 	return e, true, nil
 }
 
-// SetLink implements links.ResolverCache.
-func (lc *LinkCache) SetLink(ctx context.Context, code string, e links.CacheEntry, ttl time.Duration) error {
+// fence marks a code as recently mutated (links.FenceTTL). It is not JSON, so
+// GetLink reads it as a miss, and fills (SET NX) cannot overwrite it.
+const fence = "!"
+
+// FillLink implements links.ResolverCache: SET NX, so a fill never replaces an
+// invalidation fence (or an entry another fill already wrote).
+func (lc *LinkCache) FillLink(ctx context.Context, code string, e links.CacheEntry, ttl time.Duration) error {
 	b, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("cache encode: %w", err)
 	}
-	if err := lc.c.Set(ctx, linkKey(code), b, ttl).Err(); err != nil {
+	if err := lc.c.SetNX(ctx, linkKey(code), b, ttl).Err(); err != nil {
 		return fmt.Errorf("cache set: %w", err)
 	}
 	return nil
 }
 
-// DeleteLink implements links.Invalidator.
-func (lc *LinkCache) DeleteLink(ctx context.Context, code string) error {
-	if err := lc.c.Del(ctx, linkKey(code)).Err(); err != nil {
-		return fmt.Errorf("cache del: %w", err)
+// InvalidateLink implements links.Invalidator: the entry is replaced by a
+// fence for links.FenceTTL.
+func (lc *LinkCache) InvalidateLink(ctx context.Context, code string) error {
+	if err := lc.c.Set(ctx, linkKey(code), fence, links.FenceTTL).Err(); err != nil {
+		return fmt.Errorf("cache invalidate: %w", err)
 	}
 	return nil
 }
@@ -62,7 +71,12 @@ func (lc *LinkCache) DeleteLink(ctx context.Context, code string) error {
 // IdempotencyTTL is how long create responses are replayable (SPEC §7).
 const IdempotencyTTL = 24 * time.Hour
 
-// IdemRecord is a stored response for an Idempotency-Key.
+// IdemClaimTTL bounds how long a claimed key blocks repeats if the request
+// that claimed it dies before finishing (create takes well under a second).
+const IdemClaimTTL = 30 * time.Second
+
+// IdemRecord is a stored response for an Idempotency-Key. Status 0 marks a
+// claim: the first request is still being processed.
 type IdemRecord struct {
 	Fingerprint string          `json:"f"`
 	Status      int             `json:"s"`
@@ -97,7 +111,41 @@ func (i *Idempotency) Get(ctx context.Context, owner, key string) (IdemRecord, b
 	return r, true, nil
 }
 
-// Put stores rec for 24 h.
+// Claim atomically reserves owner/key for the request with fingerprint (SET NX,
+// IdemClaimTTL). It returns claimed=true if this request owns the key;
+// otherwise the existing record (a claim, Status 0, or a finished response).
+// Unlike Get+Put, two concurrent requests cannot both proceed.
+func (i *Idempotency) Claim(ctx context.Context, owner, key, fingerprint string) (IdemRecord, bool, error) {
+	b, err := json.Marshal(IdemRecord{Fingerprint: fingerprint})
+	if err != nil {
+		return IdemRecord{}, false, fmt.Errorf("idempotency encode: %w", err)
+	}
+	ok, err := i.c.SetNX(ctx, idemKey(owner, key), b, IdemClaimTTL).Result()
+	if err != nil {
+		return IdemRecord{}, false, fmt.Errorf("idempotency claim: %w", err)
+	}
+	if ok {
+		return IdemRecord{}, true, nil
+	}
+	rec, found, err := i.Get(ctx, owner, key)
+	if err != nil {
+		return IdemRecord{}, false, err
+	}
+	if !found { // expired between SETNX and GET: try once more
+		return i.Claim(ctx, owner, key, fingerprint)
+	}
+	return rec, false, nil
+}
+
+// Release drops a claim whose request failed, so a retry can proceed.
+func (i *Idempotency) Release(ctx context.Context, owner, key string) error {
+	if err := i.c.Del(ctx, idemKey(owner, key)).Err(); err != nil {
+		return fmt.Errorf("idempotency release: %w", err)
+	}
+	return nil
+}
+
+// Put stores the finished response rec for 24 h (replacing the claim).
 func (i *Idempotency) Put(ctx context.Context, owner, key string, rec IdemRecord) error {
 	b, err := json.Marshal(rec)
 	if err != nil {

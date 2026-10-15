@@ -63,14 +63,25 @@ type fakeIdem struct {
 	err error
 }
 
-func (f *fakeIdem) Get(_ context.Context, owner, key string) (cache.IdemRecord, bool, error) {
+// Claim models SET NX: the first caller owns the key.
+func (f *fakeIdem) Claim(_ context.Context, owner, key, fingerprint string) (cache.IdemRecord, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
 		return cache.IdemRecord{}, false, f.err
 	}
-	r, ok := f.m[owner+"|"+key]
-	return r, ok, nil
+	if r, ok := f.m[owner+"|"+key]; ok {
+		return r, false, nil
+	}
+	f.m[owner+"|"+key] = cache.IdemRecord{Fingerprint: fingerprint}
+	return cache.IdemRecord{}, true, nil
+}
+
+func (f *fakeIdem) Release(_ context.Context, owner, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.m, owner+"|"+key)
+	return nil
 }
 
 func (f *fakeIdem) Put(_ context.Context, owner, key string, r cache.IdemRecord) error {
@@ -277,6 +288,33 @@ func TestIdempotencyContract(t *testing.T) {
 	bad := c
 	bad.headers = map[string]string{"Idempotency-Key": "has space"}
 	h.expect(bad, false, 400, "invalid_request")
+	// A failed create releases the claim, so the same key can be retried.
+	invalid := call{method: "POST", path: "/api/v1/links", key: "alice-rw", body: `{"url":"ftp://example.com"}`, headers: map[string]string{"Idempotency-Key": "req-retry"}}
+	h.expect(invalid, true, 422, "")
+	h.idem.mu.Lock()
+	for k := range h.idem.m {
+		if strings.HasSuffix(k, "|req-retry") {
+			t.Fatal("a failed create must release its idempotency claim")
+		}
+	}
+	h.idem.mu.Unlock()
+	// Regression (review finding 4): while the first request with a key is
+	// still running (claimed, no response yet), a repeat gets 409, not a
+	// second link.
+	inflight := c
+	inflight.headers = map[string]string{"Idempotency-Key": "req-inflight"}
+	h.idem.mu.Lock()
+	for k, v := range h.idem.m {
+		if strings.HasSuffix(k, "|req-123") {
+			h.idem.m[strings.TrimSuffix(k, "req-123")+"req-inflight"] = cache.IdemRecord{Fingerprint: v.Fingerprint}
+		}
+	}
+	h.idem.mu.Unlock()
+	before := len(items(h.expect(call{method: "GET", path: "/api/v1/links", key: "alice-r"}, true, 200, "")))
+	h.expect(inflight, true, 409, "request_in_progress")
+	if after := len(items(h.expect(call{method: "GET", path: "/api/v1/links", key: "alice-r"}, true, 200, ""))); after != before {
+		t.Fatalf("an in-flight repeat created a link: %d -> %d", before, after)
+	}
 	// Store failures fail open.
 	h.idem.err = errors.New("valkey down")
 	fresh := c

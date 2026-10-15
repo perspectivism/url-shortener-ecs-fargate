@@ -218,6 +218,7 @@ variable "waf_anonymous_ip_action" {
 variable "alert_email" {
   description = "Email subscribed to the alert topic (alarms, budgets, cost anomalies); the recipient must confirm. Null: no subscription."
   type        = string
+  sensitive   = true # personal data: kept out of plan output and CI logs
   default     = null
 }
 

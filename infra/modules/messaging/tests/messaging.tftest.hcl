@@ -34,6 +34,11 @@ run "queues_are_encrypted_with_redrive" {
   }
 
   assert {
+    condition     = aws_sqs_queue.clicks.message_retention_seconds <= 4 * 24 * 3600
+    error_message = "Click-queue retention must not exceed the worker's dedupe-marker TTL (store.DedupeTTL, 4 days): a later redelivery could be counted twice."
+  }
+
+  assert {
     condition     = jsondecode(aws_sqs_queue_redrive_allow_policy.dlq.redrive_allow_policy).redrivePermission == "byQueue"
     error_message = "The DLQ must accept only the click queue."
   }

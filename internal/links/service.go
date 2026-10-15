@@ -21,9 +21,10 @@ type Repository interface {
 	ListLinks(ctx context.Context, owner string, limit int, cursor string) (Page, error)
 }
 
-// Invalidator removes a code's cache entry.
+// Invalidator replaces a code's cache entry with a fence that blocks fills
+// for FenceTTL, so a fill racing the mutation cannot restore the old entry.
 type Invalidator interface {
-	DeleteLink(ctx context.Context, code string) error
+	InvalidateLink(ctx context.Context, code string) error
 }
 
 // Scanner checks URLs against a threat list.
@@ -188,14 +189,14 @@ func (s *Service) scan(ctx context.Context, u string) (ScanStatus, error) {
 	}
 }
 
-// invalidate deletes the cache entry, retrying once (SPEC §4.3). It uses a
+// invalidate fences the cache entry (see Invalidator), retrying once (SPEC §4.3). It uses a
 // context detached from the request so a client disconnect cannot skip it.
 func (s *Service) invalidate(ctx context.Context, code string) {
 	base := context.WithoutCancel(ctx)
 	var err error
 	for range 2 {
 		cctx, cancel := context.WithTimeout(base, s.d.CacheTimeout)
-		err = s.d.Cache.DeleteLink(cctx, code)
+		err = s.d.Cache.InvalidateLink(cctx, code)
 		cancel()
 		if err == nil {
 			return
@@ -350,16 +351,26 @@ func (s *Service) mutate(ctx context.Context, code string, fn func(*Link) error)
 	return Link{}, fmt.Errorf("update link: %w after %d attempts", ErrConflict, attempts)
 }
 
-// ApplyScan records a rescan verdict (nightly job). An unsafe destination
-// disables an active link with reason unsafe_url; the cache entry is deleted
-// by mutate. Deleted links are ErrNotFound. Returns whether the link was
+// ErrStaleScan: the link's destination changed after it was scanned, so the
+// verdict no longer applies (the new URL is scanned on update and by the next
+// nightly run).
+var ErrStaleScan = errors.New("destination changed since the scan")
+
+// ApplyScan records a rescan verdict for scannedURL (nightly job). An unsafe
+// destination disables an active link with reason unsafe_url; the cache entry
+// is invalidated by mutate. The verdict is applied only if the link still
+// points at scannedURL (checked inside the conditional update), otherwise
+// ErrStaleScan. Deleted links are ErrNotFound. Returns whether the link was
 // disabled by this call (false on re-runs: already disabled).
-func (s *Service) ApplyScan(ctx context.Context, code string, unsafe bool) (bool, error) {
+func (s *Service) ApplyScan(ctx context.Context, code, scannedURL string, unsafe bool) (bool, error) {
 	now := s.now()
 	disabled := false
 	_, err := s.mutate(ctx, code, func(l *Link) error {
 		if l.Status == StatusDeleted {
 			return ErrNotFound
+		}
+		if l.LongURL != scannedURL {
+			return ErrStaleScan
 		}
 		disabled = false
 		l.LastScannedAt = &now

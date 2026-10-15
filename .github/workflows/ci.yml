@@ -143,7 +143,6 @@ jobs:
           TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           REPOSITORY: ${{ github.repository }}
-          OWNER: ${{ vars.OWNER }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           IMAGE_TAG="${HEAD_SHA:0:12}" scripts/ci-config.sh dev

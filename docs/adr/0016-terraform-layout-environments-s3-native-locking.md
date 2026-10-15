@@ -1,6 +1,6 @@
 # ADR-0016: Terraform layout, environments, S3 native state locking
 
-- **Status:** Accepted
+- **Status:** Accepted (`example.tfvars` superseded by [ADR-0028](0028-approve-the-saved-plan-versioned-environment-settings.md): committed `deploy.tfvars` per environment)
 - **Date:** 2026-10-14
 - **Deciders:** project owner, coding agent
 

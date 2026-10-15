@@ -96,6 +96,7 @@ data "aws_iam_openid_connect_provider" "github" {
 data "aws_iam_policy_document" "trust" {
   for_each = merge(
     { plan = "repo:${var.repository}:pull_request" },
+    { for env in var.environments : "plan-${env}" => "repo:${var.repository}:environment:${env}-plan" },
     { for env in var.environments : "apply-${env}" => "repo:${var.repository}:environment:${env}" },
   )
 
@@ -301,6 +302,49 @@ resource "aws_iam_role_policy" "plan" {
   name   = "state-read"
   role   = aws_iam_role.plan.id
   policy = data.aws_iam_policy_document.plan.json
+}
+
+# --- Deploy plan roles (GitHub environments dev-plan / prod-plan, ADR-0028) -------
+# The deploy workflow plans first, without approval, so reviewers approve the
+# saved plan itself. Same read-only permissions as the PR plan role, plus
+# writing the saved plan under plans/<env>/ in the state bucket, where only the
+# CI roles can read it; the apply job verifies its SHA-256 before applying.
+
+data "aws_iam_policy_document" "deploy_plan" {
+  for_each = var.environments
+
+  source_policy_documents = [data.aws_iam_policy_document.plan.json]
+
+  statement {
+    sid       = "SavedPlan"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.state_arn}/plans/${each.key}/*"]
+  }
+}
+
+resource "aws_iam_role" "deploy_plan" {
+  for_each = var.environments
+
+  name                 = "${var.project}-ci-plan-${each.key}"
+  assume_role_policy   = data.aws_iam_policy_document.trust["plan-${each.key}"].json
+  permissions_boundary = aws_iam_policy.boundary.arn
+  max_session_duration = 3600
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_plan_read_only" {
+  for_each = var.environments
+
+  role       = aws_iam_role.deploy_plan[each.key].name
+  policy_arn = data.aws_iam_policy.read_only.arn
+}
+
+resource "aws_iam_role_policy" "deploy_plan" {
+  for_each = var.environments
+
+  name   = "state-read-plan-write"
+  role   = aws_iam_role.deploy_plan[each.key].id
+  policy = data.aws_iam_policy_document.deploy_plan[each.key].json
 }
 
 # --- Apply roles (GitHub environments dev / prod) ---------------------------------

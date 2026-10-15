@@ -5,9 +5,11 @@
 # With infra/<root>/backend.hcl present (after make bootstrap) the plan uses the
 # real S3 backend. Without it ("local mode": nothing bootstrapped yet) the root
 # is copied to a scratch directory with a temporary local backend override, so
-# the plan shows everything that would be created. Variables come from
-# terraform.tfvars.json (CI, scripts/ci-config.sh), terraform.tfvars, else
-# example.tfvars (never in CI).
+# the plan shows everything that would be created. Variables (ADR-0028): the
+# committed deploy.tfvars (envs) always, then the per-run overlay:
+# terraform.tfvars.json in CI (scripts/ci-config.sh: alert_email, image_tag),
+# or the gitignored terraform.tfvars locally (alert_email, phase-2 image_tag).
+# Bootstrap uses its gitignored terraform.tfvars.
 # Outputs (gitignored): <root>/tfplan, tfplan.json, plan-summary.txt.
 # The plan must pass scripts/check-plan-invariants.sh (log groups, alarms, topics).
 set -euo pipefail
@@ -25,14 +27,13 @@ esac
 dir="$ROOT/$rel"
 aws sts get-caller-identity >/dev/null 2>&1 || { echo "AWS credentials unavailable: plan needs read access (local mode: record as pending)" >&2; exit 1; }
 
-varfile=""
-for f in terraform.tfvars.json terraform.tfvars example.tfvars; do
-  [[ -f "$dir/$f" ]] && { varfile="$f"; break; }
-done
-# CI must never plan against empty local state or example values.
+mapfile -t varfiles < <("$ROOT/scripts/tf-varfiles.sh" "$target")
+var_args=()
+for f in "${varfiles[@]}"; do var_args+=("-var-file=$f"); done
+# CI must never plan against empty local state or without its per-run overlay.
 if [[ "${CI:-}" == true ]]; then
   [[ -f "$dir/backend.hcl" ]] || { echo "CI: no backend.hcl (run scripts/ci-config.sh)" >&2; exit 1; }
-  [[ "$varfile" != example.tfvars ]] || { echo "CI: refusing to plan with example.tfvars" >&2; exit 1; }
+  [[ "$target" == bootstrap || " ${varfiles[*]} " == *" terraform.tfvars.json "* ]] || { echo "CI: no terraform.tfvars.json (run scripts/ci-config.sh)" >&2; exit 1; }
 fi
 
 if [[ -f "$dir/backend.hcl" ]]; then
@@ -50,7 +51,7 @@ else
   mode="local mode (no backend.hcl: empty state, temporary local backend)"
 fi
 
-(cd "$work" && terraform plan -input=false -lock=false -var-file="$varfile" -out=tfplan -no-color >"$work/plan.log" 2>&1) ||
+(cd "$work" && terraform plan -input=false -lock=false "${var_args[@]}" -out=tfplan -no-color >"$work/plan.log" 2>&1) ||
   { tail -40 "$work/plan.log" >&2; exit 1; }
 (cd "$work" && terraform show -json tfplan >tfplan.json)
 if [[ "$work" != "$dir" ]]; then
@@ -65,7 +66,7 @@ summary="$(jq -r '
 {
   echo "root:     $rel"
   echo "mode:     $mode"
-  echo "vars:     $varfile"
+  echo "vars:     ${varfiles[*]}"
   echo "changes:  $summary"
   echo "resource types:"
   jq -r '[.resource_changes[] | select(.mode == "managed" and .change.actions != ["no-op"]) | .type] | group_by(.) | map("  \(length)\t\(.[0])") | .[]' "$dir/tfplan.json"

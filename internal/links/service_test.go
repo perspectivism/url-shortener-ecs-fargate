@@ -297,12 +297,31 @@ func TestValidationErrorFormatting(t *testing.T) {
 	}
 }
 
+// Regression (review finding 5): a verdict for the old destination must not
+// disable a link whose owner changed the URL while the scan ran.
+func TestApplyScanIgnoresVerdictForReplacedURL(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, scanner.Noop{}, nil)
+	l, _ := e.svc.Create(ctx, "alice", links.CreateInput{URL: "https://old.example"})
+	newURL := "https://new.example"
+	if _, err := e.svc.Update(ctx, "alice", l.Code, links.UpdateInput{URL: &newURL}); err != nil {
+		t.Fatal(err)
+	}
+	if disabled, err := e.svc.ApplyScan(ctx, l.Code, "https://old.example", true); !errors.Is(err, links.ErrStaleScan) || disabled {
+		t.Fatalf("stale verdict: disabled=%v err=%v", disabled, err)
+	}
+	got, _ := e.repo.GetLink(ctx, l.Code)
+	if got.Status != links.StatusActive || got.ScanStatus == links.ScanFlagged {
+		t.Fatalf("the replacement URL was penalised: %+v", got)
+	}
+}
+
 func TestApplyScan(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, scanner.Noop{}, nil)
 	l, _ := e.svc.Create(ctx, "alice", links.CreateInput{URL: "https://example.com"})
 	*e.now = t0.Add(time.Hour)
-	if disabled, err := e.svc.ApplyScan(ctx, l.Code, false); err != nil || disabled {
+	if disabled, err := e.svc.ApplyScan(ctx, l.Code, "https://example.com", false); err != nil || disabled {
 		t.Fatal(err)
 	}
 	got, _ := e.repo.GetLink(ctx, l.Code)
@@ -310,7 +329,7 @@ func TestApplyScan(t *testing.T) {
 		t.Fatalf("clean: %+v", got)
 	}
 	deletes := e.cache.Deletes
-	if disabled, err := e.svc.ApplyScan(ctx, l.Code, true); err != nil || !disabled {
+	if disabled, err := e.svc.ApplyScan(ctx, l.Code, "https://example.com", true); err != nil || !disabled {
 		t.Fatalf("flag: %v %v", disabled, err)
 	}
 	got, _ = e.repo.GetLink(ctx, l.Code)
@@ -321,14 +340,14 @@ func TestApplyScan(t *testing.T) {
 		t.Fatal("LinksDisabled")
 	}
 	// Re-applying to an already-disabled link does not "disable" again.
-	if disabled, err := e.svc.ApplyScan(ctx, l.Code, true); err != nil || disabled {
+	if disabled, err := e.svc.ApplyScan(ctx, l.Code, "https://example.com", true); err != nil || disabled {
 		t.Fatalf("re-flag: %v %v", disabled, err)
 	}
 	_ = e.svc.Delete(ctx, "alice", l.Code)
-	if _, err := e.svc.ApplyScan(ctx, l.Code, true); !errors.Is(err, links.ErrNotFound) {
+	if _, err := e.svc.ApplyScan(ctx, l.Code, "https://example.com", true); !errors.Is(err, links.ErrNotFound) {
 		t.Fatal("deleted links are not found")
 	}
-	if _, err := e.svc.ApplyScan(ctx, "missing", true); !errors.Is(err, links.ErrNotFound) {
+	if _, err := e.svc.ApplyScan(ctx, "missing", "https://example.com", true); !errors.Is(err, links.ErrNotFound) {
 		t.Fatal("missing")
 	}
 }

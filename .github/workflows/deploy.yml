@@ -1,19 +1,27 @@
-# Deployment (SPEC §14, ADR-0017, ADR-0027): build the arm64 images once,
-# push the same digests to dev, apply, smoke; then promote the identical
-# digests to prod and create the release.
+# Deployment (SPEC §14, ADR-0017, ADR-0027, ADR-0028): build the arm64 images
+# once; for each environment, plan, wait for approval of that saved plan, then
+# push the same digests, apply exactly that plan and smoke test; prod last,
+# then create the release.
 #
-# Approval model (ADR-0027): nothing deploys automatically.
+# Approval model: nothing deploys automatically, and reviewers approve a plan.
 #   1. A human starts this workflow (Actions -> deploy -> Run workflow) on main;
 #      there is no push or schedule trigger, and other refs are refused.
-#   2. The `dev` and `prod` GitHub environments both require a reviewer; each
-#      job waits for that approval before it can assume its AWS role.
+#   2. plan-<env> runs in the `<env>-plan` environment (no reviewers) with a
+#      read-only role, prints the full plan and stores the saved plan in the
+#      private state bucket; its SHA-256 is the job output.
+#   3. <env> runs in the `<env>` environment, whose required reviewer approves
+#      after reading that plan. Only then can it assume the apply role; it
+#      applies the saved plan only if its SHA-256 matches (scripts/saved-plan.sh).
+#      A changed state makes the saved plan stale and the apply fails; re-run.
 # APPROVED / PROD_APPLY_CONFIRMED below record those human approvals for
 # scripts/tf-apply.sh and scripts/push-images.sh.
 #
 # Prerequisites (runbook "CI/CD setup"): bootstrap applied, phase 1 applied and
-# secrets seeded, GitHub environments dev/prod with AWS_APPLY_ROLE_ARN,
-# ALERT_EMAIL and the SMOKE_API_KEY secret, repository variables
-# TF_STATE_BUCKET, TF_STATE_KMS_KEY_ARN, AWS_REGION and OWNER.
+# secrets seeded; GitHub environments dev-plan/prod-plan (variables
+# AWS_DEPLOY_PLAN_ROLE_ARN, ALERT_EMAIL) and dev/prod (required reviewers,
+# variable AWS_APPLY_ROLE_ARN, secret SMOKE_API_KEY); repository variables
+# TF_STATE_BUCKET, TF_STATE_KMS_KEY_ARN and AWS_REGION. Every other setting is
+# in the committed infra/envs/<env>/deploy.tfvars (ADR-0028).
 name: deploy
 
 on:
@@ -55,12 +63,65 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  dev:
-    name: deploy dev
+  plan-dev:
+    name: plan dev (review this before approving dev)
     needs: [build]
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: dev-plan # no reviewers; read-only role (OIDC sub ...:environment:dev-plan)
+    permissions:
+      contents: read
+      id-token: write # OIDC for the read-only dev deploy plan role
+    outputs:
+      plan_sha256: ${{ steps.store.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make tools
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: plan-dev-${{ github.run_id }}
+      - name: plan
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ github.repository }}
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+          IMAGE_TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          scripts/ci-config.sh dev
+          make plan ENV=dev
+          {
+            echo "### dev plan (approve the dev job only if this is what should change)"
+            echo '```text'
+            cat infra/envs/dev/plan-summary.txt
+            echo '```'
+            echo "<details><summary>full plan</summary>"
+            echo
+            echo '```text'
+            .tools/bin/terraform -chdir=infra/envs/dev show -no-color tfplan | head -c 800000
+            echo '```'
+            echo "</details>"
+          } >>"$GITHUB_STEP_SUMMARY"
+      - id: store
+        name: store the saved plan (private state bucket)
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          sha="$(scripts/saved-plan.sh put dev)"
+          echo "sha256=$sha" >>"$GITHUB_OUTPUT"
+          echo "saved plan SHA-256: \`$sha\`" >>"$GITHUB_STEP_SUMMARY"
+
+  dev:
+    name: apply dev
+    needs: [build, plan-dev]
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: dev # required reviewers: the job waits here for approval
+    environment: dev # required reviewers: approve after reading plan-dev
     concurrency:
       group: deploy-dev
       cancel-in-progress: false
@@ -81,39 +142,94 @@ jobs:
           role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: deploy-dev-${{ github.run_id }}
+      - name: fetch and verify the approved saved plan
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ github.repository }}
+          PLAN_SHA256: ${{ needs.plan-dev.outputs.plan_sha256 }}
+        run: |
+          scripts/ci-config.sh dev # backend.hcl for terraform init
+          scripts/saved-plan.sh get dev "$PLAN_SHA256"
       - name: push images (verified digests)
         env:
-          APPROVED: "yes" # started by hand on main + dev environment reviewers approved
+          APPROVED: "yes" # started by hand on main + dev reviewers approved this saved plan
           AWS_REGION: ${{ vars.AWS_REGION }}
         run: make push-images ENV=dev
+      - name: apply the approved saved plan
+        env:
+          APPROVED: "yes" # started by hand on main + dev reviewers approved this saved plan
+        run: make apply ENV=dev
+      - name: delete the applied plan
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          PLAN_SHA256: ${{ needs.plan-dev.outputs.plan_sha256 }}
+        run: scripts/saved-plan.sh rm dev "$PLAN_SHA256"
+      - name: smoke
+        env:
+          SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}
+        run: make smoke-env ENV=dev
+
+  plan-prod:
+    name: plan prod (review this before approving prod)
+    needs: [build, dev]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: prod-plan # no reviewers; read-only role (OIDC sub ...:environment:prod-plan)
+    permissions:
+      contents: read
+      id-token: write # OIDC for the read-only prod deploy plan role
+    outputs:
+      plan_sha256: ${{ steps.store.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make tools
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: plan-prod-${{ github.run_id }}
       - name: plan
         env:
           TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
           TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           REPOSITORY: ${{ github.repository }}
-          OWNER: ${{ vars.OWNER }}
           ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
           IMAGE_TAG: ${{ needs.build.outputs.tag }}
         run: |
-          scripts/ci-config.sh dev
-          make plan ENV=dev
-          cat infra/envs/dev/plan-summary.txt >>"$GITHUB_STEP_SUMMARY"
-      - name: apply the saved plan
+          scripts/ci-config.sh prod
+          make plan ENV=prod
+          {
+            echo "### prod plan (approve the prod job only if this is what should change)"
+            echo '```text'
+            cat infra/envs/prod/plan-summary.txt
+            echo '```'
+            echo "<details><summary>full plan</summary>"
+            echo
+            echo '```text'
+            .tools/bin/terraform -chdir=infra/envs/prod show -no-color tfplan | head -c 800000
+            echo '```'
+            echo "</details>"
+          } >>"$GITHUB_STEP_SUMMARY"
+      - id: store
+        name: store the saved plan (private state bucket)
         env:
-          APPROVED: "yes" # started by hand on main + dev environment reviewers approved
-        run: make apply ENV=dev
-      - name: smoke
-        env:
-          SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}
-        run: make smoke-env ENV=dev
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          sha="$(scripts/saved-plan.sh put prod)"
+          echo "sha256=$sha" >>"$GITHUB_OUTPUT"
+          echo "saved plan SHA-256: \`$sha\`" >>"$GITHUB_STEP_SUMMARY"
 
   prod:
-    name: deploy prod (same digests)
-    needs: [build, dev]
+    name: apply prod (same digests)
+    needs: [build, plan-prod]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: prod # required reviewers: the job waits here for approval
+    environment: prod # required reviewers: approve after reading plan-prod
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
@@ -135,29 +251,31 @@ jobs:
           role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: deploy-prod-${{ github.run_id }}
-      - name: push images (verified digests)
-        env:
-          APPROVED: "yes" # prod environment reviewers approved this run
-          AWS_REGION: ${{ vars.AWS_REGION }}
-        run: make push-images ENV=prod
-      - name: plan
+      - name: fetch and verify the approved saved plan
         env:
           TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
           TF_STATE_KMS_KEY_ARN: ${{ vars.TF_STATE_KMS_KEY_ARN }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           REPOSITORY: ${{ github.repository }}
-          OWNER: ${{ vars.OWNER }}
-          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
-          IMAGE_TAG: ${{ needs.build.outputs.tag }}
+          PLAN_SHA256: ${{ needs.plan-prod.outputs.plan_sha256 }}
         run: |
-          scripts/ci-config.sh prod
-          make plan ENV=prod
-          cat infra/envs/prod/plan-summary.txt >>"$GITHUB_STEP_SUMMARY"
-      - name: apply the saved plan
+          scripts/ci-config.sh prod # backend.hcl for terraform init
+          scripts/saved-plan.sh get prod "$PLAN_SHA256"
+      - name: push images (verified digests)
         env:
-          APPROVED: "yes" # prod environment reviewers approved this run
+          APPROVED: "yes" # prod environment reviewers approved this saved plan
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: make push-images ENV=prod
+      - name: apply the approved saved plan
+        env:
+          APPROVED: "yes" # prod environment reviewers approved this saved plan
           PROD_APPLY_CONFIRMED: "yes"
         run: make apply ENV=prod
+      - name: delete the applied plan
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          PLAN_SHA256: ${{ needs.plan-prod.outputs.plan_sha256 }}
+        run: scripts/saved-plan.sh rm prod "$PLAN_SHA256"
       - name: smoke
         env:
           SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}

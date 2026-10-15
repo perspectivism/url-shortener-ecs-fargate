@@ -522,8 +522,8 @@ func TestNightly(t *testing.T) {
 	if u, ok := item.Item["uniques"].(*ddbtypes.AttributeValueMemberN); !ok || u.Value != "4" {
 		t.Fatalf("persisted uniques = %v, want 4 (bot excluded)", item.Item["uniques"])
 	}
-	if n, _ := env.valkey.Exists(ctx, "l:"+bad).Result(); n != 0 {
-		t.Fatal("cache entry of the disabled link must be removed")
+	if v, _ := env.valkey.Get(ctx, "l:"+bad).Result(); v != "!" {
+		t.Fatalf("cache entry of the disabled link must be replaced by the invalidation fence, got %q", v)
 	}
 	expectStatus(t, call(t, http.MethodGet, env.redirect.url+"/"+bad, "", "", nil), http.StatusGone, "gone")
 	link := call(t, http.MethodGet, env.api.url+"/api/v1/links/"+bad, env.keys["alice"], "", nil)

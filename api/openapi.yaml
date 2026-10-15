@@ -371,7 +371,7 @@ components:
       name: Idempotency-Key
       in: header
       required: false
-      description: Replays the original 201 response for 24 h when repeated with the same body.
+      description: Replays the original 201 response for 24 h when repeated with the same body. A repeat that arrives while the first request is still being processed gets 409 `request_in_progress`.
       schema:
         type: string
         minLength: 1
@@ -441,7 +441,7 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
     Conflict:
-      description: Alias already in use (`alias_taken`)
+      description: Alias already in use (`alias_taken`), or a request with the same Idempotency-Key is still being processed (`request_in_progress`; retry later)
       content:
         application/problem+json:
           schema:
@@ -528,6 +528,7 @@ components:
             - not_found
             - method_not_allowed
             - alias_taken
+            - request_in_progress
             - gone
             - payload_too_large
             - unsupported_media_type

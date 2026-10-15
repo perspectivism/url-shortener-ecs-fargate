@@ -19,6 +19,7 @@ const (
 	CodeNotFound           = "not_found"
 	CodeMethodNotAllowed   = "method_not_allowed"
 	CodeAliasTaken         = "alias_taken"
+	CodeRequestInProgress  = "request_in_progress"
 	CodeGone               = "gone"
 	CodePayloadTooLarge    = "payload_too_large"
 	CodeUnsupportedMedia   = "unsupported_media_type"

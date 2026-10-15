@@ -124,10 +124,13 @@ func (r *Repo) ListLinks(_ context.Context, owner string, limit int, cursor stri
 	return p, nil
 }
 
-// Cache is an in-memory links.ResolverCache and links.Invalidator.
+// Cache is an in-memory links.ResolverCache and links.Invalidator. It models
+// Valkey's semantics: fills are SET NX, and invalidation leaves a fence that
+// blocks fills until ExpireFences (links.FenceTTL in Valkey).
 type Cache struct {
 	mu      sync.Mutex
 	entries map[string]links.CacheEntry
+	fenced  map[string]bool
 	TTLs    map[string]time.Duration
 	// GetErr / SetErr / DelErr inject failures.
 	GetErr, SetErr, DelErr error
@@ -136,7 +139,7 @@ type Cache struct {
 
 // NewCache returns an empty Cache.
 func NewCache() *Cache {
-	return &Cache{entries: map[string]links.CacheEntry{}, TTLs: map[string]time.Duration{}}
+	return &Cache{entries: map[string]links.CacheEntry{}, fenced: map[string]bool{}, TTLs: map[string]time.Duration{}}
 }
 
 // GetLink implements links.ResolverCache.
@@ -150,20 +153,31 @@ func (c *Cache) GetLink(_ context.Context, code string) (links.CacheEntry, bool,
 	return e, ok, nil
 }
 
-// SetLink implements links.ResolverCache.
-func (c *Cache) SetLink(_ context.Context, code string, e links.CacheEntry, ttl time.Duration) error {
+// FillLink implements links.ResolverCache (SET NX).
+func (c *Cache) FillLink(_ context.Context, code string, e links.CacheEntry, ttl time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.SetErr != nil {
 		return c.SetErr
+	}
+	if _, ok := c.entries[code]; ok || c.fenced[code] {
+		return nil
 	}
 	c.entries[code] = e
 	c.TTLs[code] = ttl
 	return nil
 }
 
-// DeleteLink implements links.Invalidator.
-func (c *Cache) DeleteLink(_ context.Context, code string) error {
+// Put stores an entry unconditionally (test setup).
+func (c *Cache) Put(code string, e links.CacheEntry, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[code] = e
+	c.TTLs[code] = ttl
+}
+
+// InvalidateLink implements links.Invalidator.
+func (c *Cache) InvalidateLink(_ context.Context, code string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Deletes++
@@ -171,7 +185,15 @@ func (c *Cache) DeleteLink(_ context.Context, code string) error {
 		return c.DelErr
 	}
 	delete(c.entries, code)
+	c.fenced[code] = true
 	return nil
+}
+
+// ExpireFences ends every invalidation fence (FenceTTL elapsed).
+func (c *Cache) ExpireFences() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.fenced)
 }
 
 // Entry returns the cached entry for code.

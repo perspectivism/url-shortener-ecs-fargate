@@ -16,7 +16,16 @@ import (
 const (
 	PositiveTTL = time.Hour
 	NegativeTTL = 60 * time.Second
+	// FenceTTL is how long an invalidation blocks cache fills for a code. A
+	// fill that read the link before a mutation could otherwise write the old
+	// entry back after the mutation's invalidation (cache-aside race). It must
+	// exceed the longest fill, which fillDeadline bounds at FenceTTL/2.
+	FenceTTL = 10 * time.Second
 )
+
+// fillDeadline: a fill slower than this (paused task, slow network) skips the
+// cache write, so it can never outlive the fence of a concurrent mutation.
+const fillDeadline = FenceTTL / 2
 
 // CacheEntry is what the redirect path caches per code: either a resolved link
 // ({"u","exp","st"}) or a negative entry ({"nf":true}).
@@ -29,8 +38,11 @@ type CacheEntry struct {
 
 // ResolverCache is the redirect path's view of Valkey.
 type ResolverCache interface {
+	// GetLink returns the cached entry; an invalidation fence reads as a miss.
 	GetLink(ctx context.Context, code string) (CacheEntry, bool, error)
-	SetLink(ctx context.Context, code string, e CacheEntry, ttl time.Duration) error
+	// FillLink stores e only if the key is absent: never over an invalidation
+	// fence or an existing entry (SET NX).
+	FillLink(ctx context.Context, code string, e CacheEntry, ttl time.Duration) error
 }
 
 // LinkReader reads a link by code.
@@ -117,6 +129,7 @@ func (r *Resolver) Resolve(ctx context.Context, code string) (Resolution, error)
 // load reads DynamoDB and populates the cache. It runs once per code per
 // in-flight burst, on a context detached from any single caller.
 func (r *Resolver) load(ctx context.Context, code string) (CacheEntry, error) {
+	start := r.now()
 	base := context.WithoutCancel(ctx)
 	dctx, cancel := context.WithTimeout(base, r.dbTimeout)
 	l, err := r.repo.GetLink(dctx, code)
@@ -133,9 +146,13 @@ func (r *Resolver) load(ctx context.Context, code string) (CacheEntry, error) {
 	default:
 		e, ttl = EntryFor(l, r.now())
 	}
+	if took := r.now().Sub(start); took > fillDeadline {
+		r.logger.WarnContext(ctx, "slow cache fill skipped", "code", code, "took_ms", took.Milliseconds())
+		return e, nil
+	}
 	cctx, cancel := context.WithTimeout(base, r.cacheTimeout)
 	defer cancel()
-	if err := r.cache.SetLink(cctx, code, e, ttl); err != nil {
+	if err := r.cache.FillLink(cctx, code, e, ttl); err != nil {
 		r.metrics.Count(telemetry.CacheErrors, 1)
 		r.logger.WarnContext(ctx, "cache write failed", "code", code, "err", err)
 	}
