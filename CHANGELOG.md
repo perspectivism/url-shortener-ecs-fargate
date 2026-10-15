@@ -19,5 +19,7 @@ checks are pending, see [GATES.md](GATES.md)).
 - **Operations:** 14 alarms, a dashboard, budgets and cost-anomaly alerts;
   a runbook section per alarm.
 - **Delivery:** GitHub Actions with OIDC; build once and promote verified digests;
-  release tagging.
-- **Docs:** README interview walkthrough, design doc, 26 ADRs, threat model, cost model.
+  release tagging; deploys only by hand, with approval per environment
+  ([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md)).
+- **Docs:** README interview walkthrough, design doc, 27 ADRs, threat model, cost model.
+- **License:** MIT.

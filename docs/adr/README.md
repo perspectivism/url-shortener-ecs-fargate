@@ -22,7 +22,7 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0014](0014-secrets-management.md) | Secrets management: Secrets Manager, out-of-band values, nothing in state | Accepted |
 | [0015](0015-api-key-authentication.md) | API key authentication (vs Cognito) | Accepted |
 | [0016](0016-terraform-layout-environments-s3-native-locking.md) | Terraform layout, environments, S3 native state locking | Accepted |
-| [0017](0017-cicd-github-oidc-rolling-deploys.md) | CI/CD with GitHub Actions OIDC; rolling deploys with circuit breaker | Accepted |
+| [0017](0017-cicd-github-oidc-rolling-deploys.md) | CI/CD with GitHub Actions OIDC; rolling deploys with circuit breaker | Accepted (automatic dev deploy superseded by 0027) |
 | [0018](0018-privacy-hmac-visitor-ids-referrer-host-only.md) | Privacy: HMAC visitor IDs, referrer host only | Accepted |
 | [0019](0019-single-aws-account-for-dev-and-prod.md) | Single AWS account for dev/prod (multi-account as future) | Accepted |
 | [0020](0020-graviton-arm64-and-fargate-spot.md) | Graviton (ARM64) and Fargate Spot usage | Accepted |
@@ -32,3 +32,4 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0024](0024-batched-exactly-once-click-counting.md) | Batched exactly-once click counting | Accepted |
 | [0025](0025-analytics-retention-13-months.md) | Analytics retention of 13 months | Accepted |
 | [0026](0026-release-versioning-with-tags.md) | Release versioning with tags | Accepted |
+| [0027](0027-manual-approval-for-every-deploy.md) | Manual approval for every deploy | Accepted |

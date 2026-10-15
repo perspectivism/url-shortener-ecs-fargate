@@ -244,10 +244,11 @@ docs-check: tools-check ## markdownlint, Mermaid render, relative link check
 	@python3 -I scripts/check_doc_facts.py
 
 .PHONY: check-workflows
-check-workflows: tools-check ## actionlint, zizmor (medium+), every action/image/tool pinned
+check-workflows: tools-check ## actionlint, zizmor (medium+), every action/image/tool pinned, deploys manual + approved only
 	actionlint
 	zizmor --offline --min-severity medium .github/workflows
 	@scripts/check-pins.sh
+	@scripts/check-deploy-gate.sh
 
 .PHONY: fresh-clone-test
 fresh-clone-test: ## Clone HEAD to a temp dir, run the README local quickstart verbatim, then integration tests

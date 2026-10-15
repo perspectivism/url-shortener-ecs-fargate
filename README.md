@@ -1,5 +1,7 @@
 # 🔗 URL Shortener
 
+[![ci](https://github.com/perspectivism/url-shortener-ecs-fargate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/perspectivism/url-shortener-ecs-fargate/actions/workflows/ci.yml)
+
 > A production-grade URL shortener with click analytics, built on AWS ECS
 > Fargate. It is organised as a ~20-minute walkthrough of the classic "design
 > a URL shortener" interview, and everything in it has been built and tested.
@@ -91,6 +93,7 @@ flowchart LR
 9. [📁 Repository layout](#-repository-layout)
 10. [📚 Docs index](#-docs-index)
 11. [🧹 Teardown](#-teardown)
+12. [📄 License](#-license)
 
 ## ✨ Features
 
@@ -201,8 +204,10 @@ make smoke-env ENV=dev
 make teardown
 ```
 
-After this, merges to `main` deploy through GitHub Actions; the one-time
-setup is in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin).
+After the one-time setup in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin),
+deploys run through GitHub Actions, but never automatically. You start the
+`deploy` workflow by hand, and the dev and prod environments each wait for a
+reviewer's approval ([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md)).
 
 ## 🎤 Interview Walkthrough
 
@@ -373,7 +378,8 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   Fargate instead of Lambda, for warm connection pools.
 - ❓ **Follow-ups:**
   - *"Deploys?"* Images are built once and the same digests are promoted.
-    Rolling deploys use the circuit breaker; prod waits for a reviewer.
+    Nothing deploys automatically: a human starts the workflow, and dev and
+    prod each wait for an approval. Rolling deploys use the circuit breaker.
   - *"What's running in prod?"* The latest GitHub Release. The pipeline
     tags each commit that passes prod smoke tests and records its image
     digests ([ADR-0026](docs/adr/0026-release-versioning-with-tags.md)).
@@ -494,7 +500,7 @@ docs/           design, ADRs, threat model, runbook, cost
 | Document | Contents |
 | --- | --- |
 | [docs/design.md](docs/design.md) | System design, in walkthrough order |
-| [docs/adr/](docs/adr/README.md) | 26 architecture decision records, each with an Interview Angle |
+| [docs/adr/](docs/adr/README.md) | 27 architecture decision records, each with an Interview Angle |
 | [CHANGELOG.md](CHANGELOG.md) | Releases (tagged automatically when a commit reaches prod) |
 | [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, STRIDE, residual risks, suppressions |
 | [docs/runbook.md](docs/runbook.md) | SLOs, every alarm, deploy/rollback and operational procedures |
@@ -516,3 +522,7 @@ Bootstrap state is moved back to local before the state bucket is removed.
 - **KMS keys** cannot be deleted immediately. They stay *pending deletion* for
   7 days (not billed) and are listed as expected.
 - **Unconfirmed SNS email subscriptions** disappear after 3 days.
+
+## 📄 License
+
+[MIT](LICENSE) © 2026 Pero Matic

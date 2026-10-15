@@ -2,7 +2,7 @@
 # Scans built images (SPEC §18 M3):
 #  1. Trivy vulnerabilities: fail on fixable HIGH/CRITICAL.
 #  2. Trivy secret scanner over every layer.
-#  3. Build history review: only the expected build args (SERVICE, VERSION,
+#  3. Build history review: only the expected build args (SERVICE, VERSION, REVISION,
 #     TARGET*) may appear, and nothing secret-looking.
 # Usage: scripts/scan-images.sh <repo> <tag> <service>...
 set -euo pipefail
@@ -38,7 +38,7 @@ for svc in "$@"; do
   args="$(grep -Eo '\b[A-Z_]+=' <<<"$history" | sort -u | tr -d '=' | tr '\n' ' ' || true)"
   for a in $args; do
     case "$a" in
-      SERVICE | VERSION | TARGETOS | TARGETARCH | GOTOOLCHAIN | GOFLAGS | CGO_ENABLED | GOOS | GOARCH | PATH) ;;
+      SERVICE | VERSION | REVISION | TARGETOS | TARGETARCH | GOTOOLCHAIN | GOFLAGS | CGO_ENABLED | GOOS | GOARCH | PATH) ;;
       *) echo "FAIL: unexpected build arg/env '$a' in $img history" >&2; fail=1 ;;
     esac
   done

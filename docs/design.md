@@ -423,8 +423,10 @@ flowchart TB
   (`enable_services`), with S3-native state locking.
 - **Delivery** ([ADR-0017](adr/0017-cicd-github-oidc-rolling-deploys.md)):
   arm64 images are built once and pushed per environment with digest
-  verification. Every deploy is a rolling update with the circuit breaker,
-  through GitHub OIDC roles that carry a permissions boundary. A commit that
+  verification. Every deploy is started by hand and approved per environment
+  ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)). Each is a
+  rolling update with the circuit breaker, through GitHub OIDC roles that
+  carry a permissions boundary. A commit that
   passes prod smoke tests becomes the next GitHub Release (`v0.x.0`) with its
   image digests ([ADR-0026](adr/0026-release-versioning-with-tags.md)).
 - **Accounts** ([ADR-0019](adr/0019-single-aws-account-for-dev-and-prod.md)):

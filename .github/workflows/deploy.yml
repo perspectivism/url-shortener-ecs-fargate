@@ -1,11 +1,14 @@
-# Continuous deployment (SPEC §14, ADR-0017): build the arm64 images once,
-# push the same digests to dev, apply, smoke; then wait for the `prod`
-# environment's required reviewers and promote the identical digests to prod.
+# Deployment (SPEC §14, ADR-0017, ADR-0027): build the arm64 images once,
+# push the same digests to dev, apply, smoke; then promote the identical
+# digests to prod and create the release.
 #
-# Approval model: dev deploys what was merged to the protected main branch (a
-# reviewed pull request); prod deploys only after a reviewer approves the
-# `prod` GitHub environment. APPROVED / PROD_APPLY_CONFIRMED below record those
-# human approvals for scripts/tf-apply.sh and scripts/push-images.sh.
+# Approval model (ADR-0027): nothing deploys automatically.
+#   1. A human starts this workflow (Actions -> deploy -> Run workflow) on main;
+#      there is no push or schedule trigger, and other refs are refused.
+#   2. The `dev` and `prod` GitHub environments both require a reviewer; each
+#      job waits for that approval before it can assume its AWS role.
+# APPROVED / PROD_APPLY_CONFIRMED below record those human approvals for
+# scripts/tf-apply.sh and scripts/push-images.sh.
 #
 # Prerequisites (runbook "CI/CD setup"): bootstrap applied, phase 1 applied and
 # secrets seeded, GitHub environments dev/prod with AWS_APPLY_ROLE_ARN,
@@ -14,9 +17,7 @@
 name: deploy
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  workflow_dispatch: # manual only: never on push, merge or schedule
 
 permissions: {}
 
@@ -27,6 +28,7 @@ concurrency:
 jobs:
   build:
     name: build arm64 images (once)
+    if: github.ref == 'refs/heads/main' # deploy only what is on main
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -58,7 +60,7 @@ jobs:
     needs: [build]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: dev
+    environment: dev # required reviewers: the job waits here for approval
     concurrency:
       group: deploy-dev
       cancel-in-progress: false
@@ -81,7 +83,7 @@ jobs:
           role-session-name: deploy-dev-${{ github.run_id }}
       - name: push images (verified digests)
         env:
-          APPROVED: "yes" # merge to protected main
+          APPROVED: "yes" # started by hand on main + dev environment reviewers approved
           AWS_REGION: ${{ vars.AWS_REGION }}
         run: make push-images ENV=dev
       - name: plan
@@ -99,7 +101,7 @@ jobs:
           cat infra/envs/dev/plan-summary.txt >>"$GITHUB_STEP_SUMMARY"
       - name: apply the saved plan
         env:
-          APPROVED: "yes" # merge to protected main
+          APPROVED: "yes" # started by hand on main + dev environment reviewers approved
         run: make apply ENV=dev
       - name: smoke
         env:

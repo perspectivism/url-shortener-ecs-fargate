@@ -1,6 +1,6 @@
 # ADR-0017: CI/CD with GitHub Actions OIDC; rolling deploys with circuit breaker (vs ECS blue/green)
 
-- **Status:** Accepted (deployment strategy decided in M5; CI/CD completed in M8)
+- **Status:** Accepted (deployment strategy decided in M5; CI/CD completed in M8). The automatic dev deploy on merge is superseded by [ADR-0027](0027-manual-approval-for-every-deploy.md).
 - **Date:** 2026-10-14
 - **Deciders:** project owner, coding agent
 

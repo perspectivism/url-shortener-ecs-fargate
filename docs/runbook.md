@@ -415,9 +415,13 @@ except the smoke API keys.
    gh variable set AWS_PLAN_ROLE_ARN --body "$(terraform -chdir=infra/bootstrap output -raw plan_role_arn)"
    ```
 
-2. **Environments `dev` and `prod`:** Settings → Environments. Restrict
-   deployment branches to `main`. On `prod`, add **required reviewers** (the
-   owner) and enable "Prevent self-review". Then set the variables:
+2. **Environments `dev` and `prod`:** Settings → Environments. On **both**:
+   restrict deployment branches to `main`, and add **required reviewers**
+   (the owner). Nothing deploys without approval
+   ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)). Leave
+   "Prevent self-review" **off** while you are the only reviewer: it stops
+   the person who started a run from approving it, so every deploy would wait
+   forever. Turn it on once a second reviewer exists. Then set the variables:
 
    ```bash
    for env in dev prod; do
@@ -457,18 +461,24 @@ except the smoke API keys.
 ```mermaid
 flowchart LR
     pr["🔀 PR"] --> ci["ci.yml<br/>checks + dev plan comment"]
-    ci --> merge["merge to main"]
-    merge --> build["build arm64 OCI images once<br/>(digests recorded)"]
-    build --> dev["dev: push + verify digests<br/>plan → apply saved plan → smoke"]
+    ci --> merge["merge to main<br/>(no deploy)"]
+    merge --> run["👤 Run workflow:<br/>Actions → deploy (main)"]
+    run --> build["build arm64 OCI images once<br/>(digests recorded)"]
+    build --> wdev{"👤 dev reviewers"}
+    wdev -->|approve| dev["dev: push + verify digests<br/>plan → apply saved plan → smoke"]
     dev --> wait{"👤 prod reviewers"}
     wait -->|approve| prod["prod: same digests<br/>plan → apply → smoke"]
     prod --> rel["GitHub Release vX.Y.0<br/>tag + image digests"]
 ```
 
-- Normal path: merge a reviewed PR. `deploy.yml` builds once, pushes the
-  images to dev and checks each ECR digest against the built manifest. It
-  then plans with `image_tag = <12-char SHA>`, applies exactly that plan
-  (ECS rolling deploy with the circuit breaker) and runs the smoke suite.
+- **Nothing deploys automatically** ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)).
+  Merging a PR runs CI only. To deploy, start **Actions → deploy → Run
+  workflow** on `main` (or run `gh workflow run deploy --ref main`).
+- `deploy.yml` builds the images once, then waits for a reviewer to approve
+  the `dev` environment. After approval, it pushes the images to dev and
+  checks each ECR digest against the built manifest. It then plans with
+  `image_tag = <12-char SHA>`, applies exactly that plan (ECS rolling deploy
+  with the circuit breaker) and runs the smoke suite.
 - **Prod** waits for a reviewer to approve the `prod` environment. Before
   approving, check that the dev smoke step is green and the dev dashboard is
   quiet. The prod job pushes the **same digests** and verifies them.

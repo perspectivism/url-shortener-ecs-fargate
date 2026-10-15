@@ -9,8 +9,7 @@
 Every image is tagged with its 12-character commit SHA, and that SHA is the
 `image_tag` Terraform deploys ([ADR-0017](0017-cicd-github-oidc-rolling-deploys.md)).
 That makes deploys traceable to a commit, but nothing says which commits
-became *releases*. CD deploys every merge to dev, and only some reach prod
-after approval. There was also no human-readable version: "roll back to
+became *releases*. Many commits reach dev, and only some are approved for prod. There was also no human-readable version: "roll back to
 `3b2d556f3a67`" is harder to say under pressure than "roll back to v0.3.0",
 and Go's `go.mod` has no field for a module's own version. Go versions modules
 by git tag.
@@ -35,8 +34,8 @@ Chosen option: **2**.
 
 ```mermaid
 flowchart LR
-    merge["merge to main"] --> build["build once<br/>version = scripts/version.sh<br/>e.g. v0.1.0-4-g3b2d556f3a67"]
-    build --> dev["dev: deploy + smoke"]
+    run["👤 run deploy workflow (main)"] --> build["build once<br/>version = scripts/version.sh<br/>e.g. v0.1.0-4-g3b2d556f3a67"]
+    build --> dev["👤 approve dev: deploy + smoke"]
     dev --> approve{"👤 prod reviewers"}
     approve --> prod["prod: same digests<br/>deploy + smoke"]
     prod --> rel["scripts/release.sh<br/>GitHub Release v0.2.0<br/>tag + notes + image digests"]
