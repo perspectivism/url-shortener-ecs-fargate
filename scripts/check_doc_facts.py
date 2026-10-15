@@ -8,6 +8,7 @@ the docs state it:
   alarms            alarm names in runbook "### 4.n" headings (a Terraform test
                     keeps those equal to the alarms Terraform defines)
   STRIDE rows       rows in docs/threat-model.md
+  terraform tests   run blocks in infra/**/*.tftest.hcl
 """
 
 import pathlib
@@ -33,6 +34,8 @@ def main():
         "alarms": (alarms, [r"(\d+|[Ff]ourteen|[Ff]ifteen|[Tt]hirteen) alarms", r"[Aa]larms:\*\* (\d+) per environment", r"(\d+) alarms per environment"]),
         "STRIDE rows": (len(re.findall(r"(?m)^\| [A-Z]\d+ \|", pathlib.Path("docs/threat-model.md").read_text())),
                         [r"(\d+) STRIDE rows", r"(\d+) rows, all mitigated"]),
+        "terraform test runs": (sum(len(re.findall(r'(?m)^run "', p.read_text())) for p in pathlib.Path("infra").rglob("*.tftest.hcl") if ".terraform" not in p.parts),
+                                [r"(\d+) `terraform test` runs"]),
     }
     problems, checked = [], 0
     for doc in DOCS:

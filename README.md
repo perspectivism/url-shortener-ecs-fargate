@@ -374,7 +374,7 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   interruptions are harmless."
 - 🔍 **Show:** [design §10](docs/design.md#10-deployment-architecture);
   [`infra/envs/dev`](infra/envs/dev/main.tf).
-- ⚖️ **Trade-off:** ALB + WAF fixed costs (~$28/month) even when idle.
+- ⚖️ **Trade-off:** ALB + WAF fixed costs (~$30/month) even when idle.
   Fargate instead of Lambda, for warm connection pools.
 - ❓ **Follow-ups:**
   - *"Deploys?"* Images are built once and the same digests are promoted.
@@ -473,7 +473,7 @@ Valkey's minimum. Levers and the full model are in [docs/cost.md](docs/cost.md).
 | Unit | `make test` | ≈ 98 % coverage of `internal/` (gate 80 %), race detector, OpenAPI contract |
 | Integration | `make test-integration` | 16 end-to-end flows against emulators: dedupe under 500 replays, a hot link with 1,500 clicks each delivered twice (exact counts, batched writes), 10,000 creates with no duplicate codes, rate limits, graceful shutdown |
 | Images | `make images check-images scan-images` | arm64, UID 65532, ~16 MB, 0 fixable HIGH/CRITICAL |
-| Terraform | `make tf-check` | 57 `terraform test` runs; checkov, Trivy, tflint; plan, IAM, metric and suppression invariants |
+| Terraform | `make tf-check` | 60 `terraform test` runs; checkov, Trivy, tflint; plan, IAM, metric and suppression invariants |
 | Workflows | `make check-workflows` | actionlint, zizmor, every action pinned to a SHA |
 | Docs | `make docs-check` | markdownlint, Mermaid rendering, links, threat-model and ADR completeness |
 | Smoke | `make smoke-env ENV=dev` | the full flow through CloudFront, security negatives, direct ALB unreachable |

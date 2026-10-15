@@ -5,8 +5,32 @@ are closed as 🟡 **closed-local** in this session (owner instruction: local mo
 no AWS deployments); their pending cloud checks are listed per gate and in the
 [summary](#-pending-cloud-checks-summary) at the end.
 
+## ⚠️ Assumptions needing owner confirmation
+
+Choices the agent made that only the owner can confirm. Each is a variable or
+one-line change; nothing below has been deployed.
+
+| Assumption | Current value | Where | Status |
+| --- | --- | --- | --- |
+| GitHub repository / Go module path | `perspectivism/url-shortener-ecs-fargate` | `go.mod`, CODEOWNERS, example tfvars | ✅ confirmed 2026-10-15 |
+| Alert email | set in gitignored `terraform.tfvars` only | `alert_email` | ✅ confirmed 2026-10-15 |
+| AWS account type | standalone (anomaly monitor on) | `cost_anomaly_monitor_enabled` | ✅ confirmed 2026-10-15 |
+| Deploys | manual only: run the workflow, approve dev, approve prod | [ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md) | ✅ confirmed 2026-10-15 |
+| License | MIT, © 2026 Pero Matic | `LICENSE` | ✅ confirmed 2026-10-15 |
+| Release numbering | `v0.1.0` now; minor bump per prod release; majors tagged by hand | [ADR-0026](docs/adr/0026-release-versioning-with-tags.md) | ✅ confirmed 2026-10-15 |
+| Analytics retention | 13 months; stats survive link deletion | [ADR-0025](docs/adr/0025-analytics-retention-13-months.md) | ✅ confirmed 2026-10-15 |
+| Region | us-east-1 only (enforced by validation) | `region` | ❓ confirm |
+| Monthly budgets | dev $150, prod $400 | `monthly_budget_usd` | ❓ confirm |
+| Cost anomaly alert threshold | dev $10, prod $25 impact | `anomaly_threshold_usd` | ❓ confirm |
+| WAF per-IP limits | API 300/min, redirects 1,200/min | `waf_*_rate_limit_per_minute` | ❓ confirm |
+| CloudFront edge locations | `PriceClass_100` (North America + Europe); Asia-Pacific users get higher latency (design §6) | `infra/modules/edge` | ❓ confirm |
+| Custom domain | none (`*.cloudfront.net`, HTTP on the internal VPC-origin hop) | `domain_name` | ❓ confirm |
+| URL scanning in prod | on: needs a Google Safe Browsing API key at `make seed-secrets ENV=prod` | `url_scanning_enabled` | ❓ confirm you have or will create a key |
+| Owner tag | `perspectivism` | `owner` | ❓ confirm (team name?) |
+
 ## Contents
 
+- [Assumptions needing owner confirmation](#️-assumptions-needing-owner-confirmation)
 - [M0 🧱 Foundations](#m0--foundations---closed)
 - [M1 🔗 Core links (local)](#m1--core-links-local---closed)
 - [M2 📊 Click pipeline (local)](#m2--click-pipeline-local---closed)
@@ -18,6 +42,8 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 - [M8 🔁 CI/CD](#m8--cicd---closed-local)
 - [M9 📚 Docs & final review](#m9--docs--final-review---closed-local)
 - [Post-M9: batched click counting](#post-m9-change-batched-exactly-once-click-counting---closed-local)
+- [Post-M9 review](#post-m9-review-module-path-retention-docs-accuracy---closed-local)
+- [Post-M9: release versioning](#post-m9-release-versioning-v010---closed-local)
 - [Pending cloud checks summary](#-pending-cloud-checks-summary)
 
 ## M0 🧱 Foundations — ✅ closed
@@ -38,7 +64,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Unit tests | `make test` | ✅ | internal/... coverage 100.0% (min 80%) |
 | Stubs fail loudly | `make up/images/tf-check/ci/teardown` | ✅ | each exits 1 with "not yet implemented (Mn)" |
 
-- **Decisions / ADRs:** ADR-0001. Toolchain pinned with a 7-day release cooldown (supply-chain hygiene): Go 1.27.2, Terraform 1.16.5, golangci-lint 2.14.0, gitleaks 8.30.1, tflint 0.64.0 (+ AWS ruleset 0.49.0), Trivy 0.75.0, actionlint 1.7.12, shellcheck 0.11.0, terraform-docs 0.24.0, k6 2.3.0, govulncheck 1.8.0, checkov 3.3.26, zizmor 1.30.1, pre-commit 4.6.2, markdownlint-cli2 0.23.3, mermaid-cli 12.0.0.
+- **Decisions / ADRs:** [ADR-0001](docs/adr/0001-record-architecture-decisions.md). Toolchain pinned with a 7-day release cooldown (supply-chain hygiene): Go 1.27.2, Terraform 1.16.5, golangci-lint 2.14.0, gitleaks 8.30.1, tflint 0.64.0 (+ AWS ruleset 0.49.0), Trivy 0.75.0, actionlint 1.7.12, shellcheck 0.11.0, terraform-docs 0.24.0, k6 2.3.0, govulncheck 1.8.0, checkov 3.3.26, zizmor 1.30.1, pre-commit 4.6.2, markdownlint-cli2 0.23.3, mermaid-cli 12.0.0.
 - **Deviations / assumptions:**
   - SPEC.md TOC anchor for §12 was broken; fixed with owner approval (only change to SPEC.md).
   - SPEC.md and AGENTS.md are excluded from markdownlint (style-only findings: MD032/MD060; formatting edits not authorized). Both are still covered by the link check and Mermaid render check.
@@ -64,10 +90,10 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Docs | `make docs-check` | ✅ | 17/17 Mermaid diagrams render; 94/94 relative links resolve |
 | Secret scan | `gitleaks git --staged` (pre-commit) | ✅ | no leaks |
 
-- **Decisions / ADRs:** ADR-0002, 0004, 0005, 0006, 0007, 0008, 0009, 0015, 0018, **0021** (new: Safe Browsing v5). Threat model v0 (application DFD + STRIDE for redirect and API).
+- **Decisions / ADRs:** [ADR-0002](docs/adr/0002-go-for-all-services.md), 0004, 0005, 0006, 0007, 0008, 0009, 0015, 0018, **0021** (new: Safe Browsing v5). Threat model v0 (application DFD + STRIDE for redirect and API).
 - **Deviations / assumptions:**
   - Naming overrides applied: CLI is `cmd/shortenerctl` (SPEC: `snipctl`), tables `shortener-{env}-*`, API key prefix `shortener_{env}_`, metrics namespace `Shortener/{env}`.
-  - Safe Browsing **v5 `urls:search`** instead of the deprecated v4 Lookup API (v4 support ends 2027-03-31) — ADR-0021.
+  - Safe Browsing **v5 `urls:search`** instead of the deprecated v4 Lookup API (v4 support ends 2027-03-31) — [ADR-0021](docs/adr/0021-url-safety-scanning-safe-browsing-v5.md).
   - Rate-limit buckets are `write` (create, update, delete, admin; 60/min) and `read` (300/min), configurable via env.
   - Added problem code `method_not_allowed` (405) for wrong methods on known API paths (SPEC §9.3 lists no 405 code).
   - `expires_at` accepts any RFC 3339 offset and is normalized to UTC (second precision); `PATCH` with `"expires_at": null` removes the expiry.
@@ -98,7 +124,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Unit tests + coverage | `make test` | ✅ | `internal/...` 97.7% |
 | Lint / vuln / docs | `make lint`, `make vuln`, `make docs-check` | ✅ | 0 issues; no vulnerabilities; 19/19 diagrams, 103/103 links |
 
-- **Decisions / ADRs:** ADR-0010, ADR-0011. Threat model v0.2 (pipeline STRIDE P1–P8).
+- **Decisions / ADRs:** [ADR-0010](docs/adr/0010-async-click-pipeline.md), [ADR-0011](docs/adr/0011-analytics-hot-and-cold-paths.md). Threat model v0.2 (pipeline STRIDE P1–P8).
 - **Deviations / assumptions:**
   - `clicks` (humans) and `bot_clicks` are disjoint; dimensions and uniques count humans only.
   - The nightly job finds "links with yesterday's activity" via a Valkey set `active:{date}` (8-day TTL) written by the worker, instead of scanning DynamoDB.
@@ -127,7 +153,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Process-mode integration (regression) | `make test-integration` | ✅ | 14/14 (80.1 s), run after the container suite against the same Valkey |
 | Unit / lint / vuln / docs | `make test lint vuln docs-check` | ✅ | coverage 97.7%; 0 lint issues; no vulnerabilities; 19/19 diagrams, 105/105 links |
 
-- **Decisions / ADRs:** ADR-0020 (Graviton ARM64 + Fargate Spot; Spot ARM64 support verified against the AWS announcement).
+- **Decisions / ADRs:** [ADR-0020](docs/adr/0020-graviton-arm64-and-fargate-spot.md) (Graviton ARM64 + Fargate Spot; Spot ARM64 support verified against the AWS announcement).
 - **Deviations / assumptions:**
   - Size gate measured on the **uncompressed** filesystem (`docker export`): with the containerd image store, `docker image inspect .Size` is the compressed size and would understate the image.
   - `make up` now builds native-platform images (`images-local`, tag `local`) and starts the full containerized stack; `make up-deps` starts only the emulators. A one-shot `init` container runs `local-init`, so the quickstart needs only Docker + make.
@@ -156,14 +182,14 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Plan prod | `make plan ENV=prod` | ✅ | read-only, local mode: +101 ~0 −0 (3 AZs, NAT, endpoints in all AZs) |
 | Regression | `make lint test docs-check` | ✅ | lint 0 issues; coverage 97.7%; 21/21 diagrams, 115/115 links |
 
-- **Decisions / ADRs:** ADR-0013, ADR-0014, ADR-0016, ADR-0019. `docs/cost.md` first draft (Price List API, 2026-10-14): dev foundation ≈ $53/month idle (≈ $108 if the 1 GB Valkey minimum applied).
+- **Decisions / ADRs:** [ADR-0013](docs/adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0014](docs/adr/0014-secrets-management.md), [ADR-0016](docs/adr/0016-terraform-layout-environments-s3-native-locking.md), [ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md). `docs/cost.md` first draft (Price List API, 2026-10-14): dev foundation ≈ $53/month idle (≈ $108 if the 1 GB Valkey minimum applied).
 - **Deviations / assumptions:**
   - AWS provider pinned `~> 6.68` and locked to **6.68.0** (owner request; newer than the 7-day tool cooldown).
   - Added two helper modules beyond SPEC §12.2: `s3-bucket` (shared hardened bucket) and `log-bucket` (SSE-S3 log archive: S3 server access logs and ALB logs cannot target SSE-KMS buckets).
   - Plans ran in **local mode**: no state bucket exists yet, so `make plan` copies the root to a scratch directory with a temporary local backend (empty state) — read-only, never applied.
   - Security groups for endpoints and Valkey admit *client security groups* that tasks attach (M5), rather than per-service task SGs that do not exist yet; still SG-to-SG, no CIDRs.
   - Valkey app user ACL `on ~* &* +@all -@dangerous` (to be verified against the real cache).
-  - CI apply roles: broad service actions (single account, ADR-0019) bounded by the permissions boundary, cross-environment tag denies and state-file isolation.
+  - CI apply roles: broad service actions (single account, [ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md)) bounded by the permissions boundary, cross-environment tag denies and state-file isolation.
   - ⚠️ The AWS credentials available in this session are **root-user access keys**; only read-only calls were made. Recommend replacing them with an IAM Identity Center/admin role and deleting the root keys before any apply.
 - **Pending (closed-local):**
   1. ☁️ Create `infra/bootstrap/terraform.tfvars` (repository, owner), then `make bootstrap` → 👤 approve → `APPROVED=yes make bootstrap-apply` (applies, writes `backend.hcl` ×3, migrates bootstrap state into S3).
@@ -186,7 +212,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Smoke suite | `make smoke` against the local containerized stack | ✅ | create → 302 (`no-store`) → click counted after 5 s → 404 → delete → 410 → 401 ×2 → Google test URL 422 `unsafe_url` (fake scanner); oversize 413; cross-owner 404 (GET/DELETE/stats) |
 | Regression | `make lint test test-integration docs-check` | ✅ | lint 0 issues (smoke tag linted); coverage 97.7%; integration 14/14 (83.7 s); 23/23 diagrams, 119/119 links |
 
-- **Decisions / ADRs:** ADR-0003, ADR-0012, ADR-0017 (Proposed: deploy strategy decided; CI/CD completed in M8). Design doc deployment section.
+- **Decisions / ADRs:** [ADR-0003](docs/adr/0003-ecs-on-fargate.md), [ADR-0012](docs/adr/0012-cloudfront-vpc-origin-internal-alb-waf.md), [ADR-0017](docs/adr/0017-cicd-github-oidc-rolling-deploys.md) (Proposed: deploy strategy decided; CI/CD completed in M8). Design doc deployment section.
 - **Deviations / assumptions:**
   - **ECS Exec off by default in dev too:** AWS does not support ECS Exec with a read-only root filesystem, and distroless images lack a shell and the `script`/`cat` needed for session logging. SPEC's hardened runtime wins; `ecs_exec_enabled` is a break-glass toggle (relaxes the read-only FS for that environment; forbidden in prod by validation). Dev no longer needs the `ssmmessages` endpoint (−$7.30/month).
   - CloudFront-scope WAF, the viewer ACM certificate and CloudFront/WAF log groups use the AWS provider 6.x per-resource `region = "us-east-1"` instead of a provider alias (SPEC §12.1); same result, modules stay independently validatable.
@@ -222,7 +248,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Regression | `make lint test docs-check test-secret-scan secret-scan check-ignore vuln` | ✅ | lint 0 issues; coverage 97.7 %; 25/25 diagrams, 147+ links; gitleaks clean; govulncheck: no vulnerabilities |
 | Plans (phase 1/2, dev/prod) | `make plan ENV=…` | ⏸️ | **not run**: the AWS CLI session expired (`aws login` required) — read-only plans moved to pending; offline equivalent: `envs/{dev,prod}` mock-provider tests plan both phases |
 
-- **Decisions / ADRs:** ADR-0022 (observability, alerting and cost guardrails). Runbook v0.2 (SLIs/SLOs, alarm responses), cost model v0.3, design §4, threat model v0.3.
+- **Decisions / ADRs:** [ADR-0022](docs/adr/0022-observability-alerting-and-cost-guardrails.md) (observability, alerting and cost guardrails). Runbook v0.2 (SLIs/SLOs, alarm responses), cost model v0.3, design §4, threat model v0.3.
 - **Deviations / assumptions:**
   - `CostCenter = <project>-<env>` added to `default_tags` (SPEC §12.1 lists five tags): customer-managed anomaly monitors filter on a single tag key, and `Environment` is not project-unique in a shared account. Activation is a second bootstrap apply (`activate_cost_allocation_tag = true`) once Billing has seen the tag (≤ 24 h).
   - Tag-based anomaly monitors only work in a management/standalone account (AWS docs); in an Organizations member account that resource fails to create (future work: account-level monitor).
@@ -257,7 +283,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | Smoke security negatives (local) | `make smoke` against the local stack | ✅ | 422 unsafe URL (fake scanner), 413, cross-owner 404 ×3 (two keys), invalid key 401, `TestALBNotPublic` fails to connect (unroutable probe address); `TestWAFRateLimit` skipped locally (no WAF) |
 | Regression | `make lint test docs-check vuln` | ✅ | lint 0 issues; coverage 97.7 %; 25/25 diagrams, 164/164 links; govulncheck: no vulnerabilities |
 
-- **Decisions / ADRs:** ADR-0023 (IAM review, VPC endpoint data perimeter, WAF tuning). Threat model v1.0.
+- **Decisions / ADRs:** [ADR-0023](docs/adr/0023-iam-review-data-perimeter-and-waf-tuning.md) (IAM review, VPC endpoint data perimeter, WAF tuning). Threat model v1.0.
 - **Deviations / assumptions:**
   - Interface endpoints now carry per-service data-perimeter policies (`aws:PrincipalAccount` + `aws:ResourceAccount`); the S3 gateway endpoint is limited to `<project>-<env>-*` buckets and object actions. Not testable offline — the first deploy verifies them (tasks must pull images, write logs and read secrets).
   - WAF rate rules moved ahead of the managed groups (priorities 1–2) so they count every request; `GenericRFI_BODY` stays blocking (accepted trade-off, threat model I9).
@@ -282,9 +308,9 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 | OIDC trust policies | `terraform test` (`infra/bootstrap`) | ✅ | `aud = sts.amazonaws.com`; exact `sub` (StringEquals, one value, no wildcards): plan → `repo:<repo>:pull_request`, apply → `repo:<repo>:environment:<env>`; only these three roles trust GitHub; all carry the boundary |
 | Build once, promote digests | `make images-oci` + `scripts/push-images.sh` against a local `crane registry serve` | ✅ | 4 single-manifest arm64 layouts (UID 65532); dev and prod pushes report identical digests; re-push idempotent; dirty tag and missing approval refused |
 
-- **Decisions / ADRs:** ADR-0017 completed (Accepted): workflows, approvals, digest promotion, hardening. Runbook §5.1 CI/CD setup, §5.2 deploy, §5.3 rollback. Threat model C5/C6/C9 updated.
+- **Decisions / ADRs:** [ADR-0017](docs/adr/0017-cicd-github-oidc-rolling-deploys.md) completed (Accepted): workflows, approvals, digest promotion, hardening. Runbook §5.1 CI/CD setup, §5.2 deploy, §5.3 rollback. Threat model C5/C6/C9 updated.
 - **Deviations / assumptions:**
-  - Images are promoted as OCI layouts (built once in `deploy.yml`, pushed with pinned `crane`, digest verified per environment) because each environment has its own ECR repositories and the apply roles cannot cross environments (ADR-0019 guardrail).
+  - Images are promoted as OCI layouts (built once in `deploy.yml`, pushed with pinned `crane`, digest verified per environment) because each environment has its own ECR repositories and the apply roles cannot cross environments ([ADR-0019](docs/adr/0019-single-aws-account-for-dev-and-prod.md) guardrail).
   - Provenance/SBOM attestations are disabled to keep one manifest digest per image (signing is future work).
   - `make push-images` now pushes the OCI layouts from `make images-oci` (was: docker push of `make images`), so manual and CI deploys share one path.
   - The `deploy` pipeline assumes phase 1 is applied and secrets are seeded; it always deploys with `enable_services = true`.
@@ -292,7 +318,7 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   - **Flake observed once:** in the first `make ci` run `TestKeyRangeAllocationNoDuplicates` reported 136 of 10,000 creates failing (0 duplicates). Not reproducible in 7 further runs (3 alone, 3 under parallel `go test -race` load, 2 full suites) nor in the full `make ci` reruns. The test now records failure reasons (status/problem code or transport error) so a recurrence is diagnosable; suspected cause: DynamoDB Local latency spikes beyond the 200 ms deadline (→ 503). No assertion was loosened.
 - **Pending (closed-local):**
   1. 👤 Push the repository to GitHub (`perspectivism/url-shortener-ecs-fargate`).
-  2. 👤 Configure repository variables, environments `dev`/`prod` (deployment branch `main`; `prod` required reviewers + prevent self-review), environment variables and the `SMOKE_API_KEY` secrets — exact commands in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin).
+  2. 👤 Configure repository variables, environments `dev`/`prod` (deployment branch `main`; required reviewers on **both**; prevent self-review off while you are the only reviewer, see [ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md)), environment variables and the `SMOKE_API_KEY` secrets — exact commands in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin).
   3. 👤 Branch ruleset on `main`: PR + 1 approval + code owners; required checks (the five `ci` jobs and `terraform plan (dev)`); block force pushes.
   4. 👤 Open a PR: `ci` green, plan comment posted by `terraform plan (dev)`.
   5. ☁️ Merge: `deploy` builds once, dev pushes with verified digests, applies, smoke passes; the `prod` job **waits for approval** (the agent does not approve).
@@ -336,9 +362,71 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
 
 - **Second bug caught by the integration tests:** the first batched worker added visitors to the HyperLogLog *after* committing counters, so stats briefly showed clicks with `uniques = 0`. Visitors are now added before the commit (PFADD is idempotent on redelivery); covered by `TestUniquesAddedBeforeCounting`.
 - **Bug caught by the new integration test:** the first version sent two operations on the same `DAY#` item (human `clicks` and `bot_clicks`) in one transaction, which DynamoDB rejects. Fixed with one update per item carrying several `ADD` clauses; the unit-test fake now rejects duplicate items like DynamoDB does.
-- **Decisions / ADRs:** ADR-0024 (supersedes ADR-0010's per-event transaction). Updated: design §2/§4/§8/§12, README walkthrough steps 2, 8 and 12 plus the testing table, threat model P1, runbook 4.4/4.7, cost levers, dashboard (`WorkerCountTransactions`), `.env.example` (worker settings, including the new `WORKER_COUNT_INTERVAL` and `WORKER_COUNT_MAX_EVENTS`).
+- **Decisions / ADRs:** [ADR-0024](docs/adr/0024-batched-exactly-once-click-counting.md) (supersedes [ADR-0010](docs/adr/0010-async-click-pipeline.md)'s per-event transaction). Updated: design §2/§4/§8/§12, README walkthrough steps 2, 8 and 12 plus the testing table, threat model P1, runbook 4.4/4.7, cost levers, dashboard (`WorkerCountTransactions`), `.env.example` (worker settings, including the new `WORKER_COUNT_INTERVAL` and `WORKER_COUNT_MAX_EVENTS`).
 - **Deviations from SPEC:** §8.2 ("for each message: TransactWriteItems") → batched transactions per link with per-click markers; stats freshness gains at most 2 s (SPEC N4 allows 2 min).
 - **Pending (closed-local):** no new cloud checks. Existing item 9 (services healthy) and item 10 (smoke: stats within 2 minutes) cover it in AWS. Optional: watch `WorkerCountTransactions` against `WorkerEventsProcessed` on the dashboard during the k6 baseline (item 14).
+
+## Post-M9 review: module path, retention, docs accuracy — 🟡 closed-local
+
+- **Date:** 2026-10-15
+- **Commit:** see tag `post-m9-review-local`
+- **What the owner found or asked for, and what changed:**
+  - **Go module path** was a placeholder naming a GitHub org the owner doesn't control (`github.com/shortener/...`) → `github.com/perspectivism/url-shortener-ecs-fargate` in `go.mod`, every import, golangci, the Dockerfile ldflag and image source label.
+  - **Analytics retention** (owner decision): counters expire 13 months after their day, including after link deletion; prod raw events 365 → 395 days ([ADR-0025](docs/adr/0025-analytics-retention-13-months.md)).
+  - **Interview gaps written up:** same-URL policy, retention, user-perceived latency, cache eviction/sizing/hot keys, availability and DR (RPO/RTO) in design §3/§4/§6/§7/§11, README follow-ups, runbook §5.14 region outage.
+  - **Severity review (agent):** anomaly monitor made optional (`cost_anomaly_monitor_enabled`, on: standalone account confirmed); `region` restricted to us-east-1 (the edge reuses the regional CMK); APAC latency claim corrected (`PriceClass_100` has no Asia-Pacific edges); threat-model row C10 (PR plan runs PR code with read-only credentials).
+  - **Source-control hygiene:** history clean of emails and credentials (commit metadata uses GitHub noreply addresses); `.gitignore` now covers all saved plans, plan logs and summaries (they contain variable values, including the alert email) and `.docker/`; `check-ignore.sh` asserts 35 paths.
+  - **Docs accuracy:**
+    - 72 bare ADR mentions linked; `check_adr_links.py` fails on new ones;
+    - `check_doc_facts.py` checks every quoted count of ADRs, integration tests, alarms and STRIDE rows against the source of truth;
+    - an audit of every backticked reference found no dangling make target, path, env var, metric or Terraform variable;
+    - config values quoted in the docs were checked against code;
+    - two stale counts were fixed (integration tests 16; coverage now "≈ 98 %").
+  - **Process fixes:**
+    - pre-commit `terraform-docs` hook: a stale module README now blocks the commit (this mistake happened three times);
+    - an "Assumptions needing owner confirmation" table at the top of this log.
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Full regression | `make ci` | ✅ | on `0d1d700`: lint 0; coverage 97.8 %; integration (16 tests) 91 s; checkov 884/0/75; 60 `terraform test` runs; 45/45 diagrams, 381/381 links; ADR links and doc facts OK; check-ignore OK; gitleaks 30 commits clean |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `0d1d700`: quickstart `302`, `total_clicks: 1`; integration green |
+
+- **Pending (closed-local):** unchanged list below; first `make plan` after `aws login` is the first real-provider plan of everything added since M5 (observability, budget, endpoint policies, schedule group, Container Insights log group, retention).
+
+## Post-M9: release versioning (v0.1.0) — 🟡 closed-local
+
+- **Date:** 2026-10-15
+- **Commit:** tag `v0.1.0`
+- **Why:** owner asked for a package version; Go versions modules by git tag, and nothing named what reached prod.
+- **Change** ([ADR-0026](docs/adr/0026-release-versioning-with-tags.md)):
+  - `scripts/version.sh` stamps binaries with `v0.1.0+<sha>` / `v0.1.0-N-g<sha>` (logs' `version` field; OCI `version` + `revision` labels); image tags stay the bare SHA.
+  - After prod smoke tests pass, `deploy.yml` runs `scripts/release.sh`, which creates the next GitHub Release (minor bump; a manual tag such as `v1.0.0` is respected) with the commits and image digests (prod job: `contents: write`).
+  - `v0.1.0` tags the first complete build; [CHANGELOG.md](CHANGELOG.md); runbook deploy/rollback name releases.
+- **Also in v0.1.0 (owner requests, 2026-10-15):**
+  - MIT [LICENSE](LICENSE) (© 2026 Pero Matic) and a CI status badge in the README.
+  - **No automatic deploys** ([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md)):
+    - `deploy.yml` runs only on `workflow_dispatch` from `main`;
+    - `dev` and `prod` both require a reviewer;
+    - `scripts/check-deploy-gate.sh` (in `make check-workflows`) fails on any other trigger, or on an AWS role outside an approval-gated environment;
+    - deviation from SPEC §14 recorded.
+  - Runbook fix: "Prevent self-review" stays off while the owner is the only reviewer (it would block every deploy).
+  - **Regression fixed:** `scan-images.sh` rejected the new `REVISION` build arg (its build-arg allowlist predates it); added it to the allowlist.
+- **Walkthrough accuracy review (2026-10-15):** every README walkthrough claim checked against code, Terraform and tests. Fixed:
+  - the testing table said 57 `terraform test` runs (actual 60); `check_doc_facts.py` now derives this count too;
+  - design §1 lists F1–F9 with IDs, as the walkthrough cites them;
+  - ALB + WAF fixed cost ~$30/month (was ~$28; [cost.md](docs/cost.md) has $28–31) in README and ADR-0012.
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Version and release logic | `make test-scripts` (also in `make ci` and the CI `go` job) | ✅ | version: no tag / on tag / after tag / dirty / non-release tags ignored; release: first v0.1.0, minor bump, manual major kept, bump after major |
+| Docs facts | `make docs-check` | ✅ | 9 quoted counts match incl. 60 `terraform test` runs; negative probe (README says 59) fails |
+| Workflows | `make check-workflows` + `zizmor --persona auditor` | ✅ | actionlint clean; zizmor no findings (auditor); pins OK; deploy gate OK (negative probes: push trigger and environment-less job both rejected) |
+| Full regression | `make ci` | ✅ | on `7cf8a1b`: lint 0; coverage 97.8 %; test-scripts OK; govulncheck clean; gitleaks 32 commits clean; integration (16 tests) 90 s; images arm64, UID 65532, Trivy 0 fixable HIGH/CRITICAL; checkov 884/0/75; 60 `terraform test` runs; 46/46 diagrams, 414/414 links; pins OK; deploy gate OK |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | on `7cf8a1b`: Quickstart from a clean clone passed; integration 96 s |
+
+- **Pending:** the first release beyond v0.1.0 is created by the first prod deploy (pending cloud check 17 onward). Push tags with `git push origin v0.1.0` (gate tags `gate-*` are milestone markers; push them only if wanted).
 
 ## 📋 Pending cloud checks summary
 
@@ -348,7 +436,7 @@ instructs it.
 
 1. 👤 **Credentials:** `aws login` (the CLI session expired during M6–M9) with an admin **role session**, not root access keys.
 2. **Bootstrap:** create `infra/bootstrap/terraform.tfvars`; `make bootstrap` → approve → `APPROVED=yes make bootstrap-apply`.
-3. **Dev phase 1:** create `infra/envs/dev/terraform.tfvars` (repository, owner, `alert_email`); `make plan ENV=dev` (plan invariants must print OK) → approve → `APPROVED=yes make apply ENV=dev`.
+3. **Dev phase 1:** `infra/envs/dev/terraform.tfvars` already exists locally (repository, owner, `alert_email`); `make plan ENV=dev` (plan invariants must print OK; **first real-provider plan of everything added since M5**, so expect to fix issues here) → approve → `APPROVED=yes make apply ENV=dev`.
 4. **Verify foundation:** DynamoDB PITR/SSE, S3 BPA, SQS SSE/redrive, Valkey available with IAM auth, secrets exist without values.
 5. 👤 Confirm the SNS subscription email (`aws sns list-subscriptions-by-topic` shows no `PendingConfirmation`).
 6. 👤 `make seed-secrets ENV=dev`; verify secret versions (metadata only).
@@ -362,6 +450,6 @@ instructs it.
 14. **Load baseline:** `LOAD_API_KEY=… make load BASE_URL=<cloudfront>`; `scripts/load-report.sh dev <start> <end>`; record RPS, p50/p95/p99, error rate, cache hit ratio in GATES (M6).
 15. **Cost:** ≥ 24 h after step 3: bootstrap `activate_cost_allocation_tag = true` → plan → approve → apply; ≥ 3 days: measured spend into cost.md §7.
 16. 👤 **CI/CD setup:** push to GitHub (`perspectivism/url-shortener-ecs-fargate`), configure variables, environments (`prod` required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
-17. **CD:** merge → `deploy`: dev push (verified digests), apply, smoke green; the prod job **waits for approval** (not approved by the agent).
+17. **CD:** 👤 start **Actions → deploy → Run workflow** on `main` → 👤 approve `dev` → dev push (verified digests), apply, smoke green → the prod job **waits for approval** (not approved by the agent). Merges alone never deploy.
 18. **Destroy plans (read-only):** `make plan-destroy ENV=dev` (and `ENV=prod` if deployed); bootstrap: `terraform -chdir=infra/bootstrap plan -destroy -var-file=terraform.tfvars` against the S3 backend — all succeed.
 19. **Only if requested:** `make teardown` (typed confirmation per step), then `make verify-teardown` → nothing left except KMS keys pending deletion.

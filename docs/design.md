@@ -24,12 +24,17 @@
 
 **Functional** (SPEC §2.1):
 
-- create short links (optional custom alias and expiry; idempotent creates);
-- 302 redirect, 404 for unknown codes, 410 for expired, disabled or deleted links;
-- owners manage their links and read analytics (clicks over time, uniques,
-  referrer hosts, countries, devices, browsers);
-- URL safety checks at create time and nightly;
-- admin disable/enable.
+| ID | Requirement |
+| --- | --- |
+| F1 | Authenticated clients create short links |
+| F2 | Optional custom alias |
+| F3 | Optional expiry (at most 5 years) |
+| F4 | 302 redirect; 404 for unknown codes; 410 for expired, disabled or deleted links |
+| F5 | Owners list, view, update and delete their links |
+| F6 | Owners read analytics: clicks over time, uniques, referrer hosts, countries, devices, browsers |
+| F7 | URL safety checks at create time and nightly; flagged links are disabled |
+| F8 | Admins disable and enable any link |
+| F9 | Idempotent creates (`Idempotency-Key`) |
 
 **Non-functional** (SPEC §2.2):
 

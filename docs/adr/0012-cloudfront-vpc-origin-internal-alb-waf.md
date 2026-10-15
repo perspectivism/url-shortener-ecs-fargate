@@ -90,7 +90,7 @@ Facts verified against AWS documentation on 2026-10-14:
 
 ### Negative
 
-- ALB + WAF fixed costs (~$28/month) even for a demo.
+- ALB + WAF fixed costs (~$30/month, [cost.md](../cost.md)) even for a demo.
 - CloudFront changes take minutes to deploy; distributions must be disabled before deletion.
 - VPC-origin AZ restrictions constrain subnet placement.
 
