@@ -1,5 +1,4 @@
 # Every change needs the owner's review (branch protection: require code owner review).
-# Replace OWNER with the GitHub user or team that owns this repository.
-*                   @OWNER
-/infra/             @OWNER
-/.github/           @OWNER
+*                   @perspectivism
+/infra/             @perspectivism
+/.github/           @perspectivism

@@ -402,7 +402,7 @@ except the smoke API keys.
 
    ```bash
    gh variable set AWS_REGION --body us-east-1
-   gh variable set OWNER --body platform-team
+   gh variable set OWNER --body perspectivism
    gh variable set TF_STATE_BUCKET --body "$(terraform -chdir=infra/bootstrap output -raw state_bucket)"
    gh variable set TF_STATE_KMS_KEY_ARN --body "$(terraform -chdir=infra/bootstrap output -raw state_kms_key_arn)"
    gh variable set AWS_PLAN_ROLE_ARN --body "$(terraform -chdir=infra/bootstrap output -raw plan_role_arn)"
@@ -416,7 +416,7 @@ except the smoke API keys.
    for env in dev prod; do
      gh variable set AWS_APPLY_ROLE_ARN --env "$env" \
        --body "$(terraform -chdir=infra/bootstrap output -json apply_role_arns | jq -r --arg e "$env" '.[$e]')"
-     gh variable set ALERT_EMAIL --env "$env" --body oncall@example.com
+     gh variable set ALERT_EMAIL --env "$env" --body "$ALERT_EMAIL"   # the address that receives alarms
    done
    ```
 
@@ -443,7 +443,7 @@ except the smoke API keys.
      `terraform plan (dev)`;
    - block force pushes and deletions.
 
-   Replace `@OWNER` in [`.github/CODEOWNERS`](../.github/CODEOWNERS).
+   [`.github/CODEOWNERS`](../.github/CODEOWNERS) assigns every path to `@perspectivism`.
 
 ### 5.2 Deploy
 

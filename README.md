@@ -123,7 +123,7 @@ jq. Go and the other tools are needed only for tests; `make tools` installs
 pinned, checksum-verified versions into `./.tools`.
 
 ```bash
-git clone https://github.com/OWNER/url-shortener-ecs-fargate.git
+git clone https://github.com/perspectivism/url-shortener-ecs-fargate.git
 cd url-shortener-ecs-fargate
 ```
 

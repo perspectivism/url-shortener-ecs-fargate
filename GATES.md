@@ -287,10 +287,10 @@ no AWS deployments); their pending cloud checks are listed per gate and in the
   - Provenance/SBOM attestations are disabled to keep one manifest digest per image (signing is future work).
   - `make push-images` now pushes the OCI layouts from `make images-oci` (was: docker push of `make images`), so manual and CI deploys share one path.
   - The `deploy` pipeline assumes phase 1 is applied and secrets are seeded; it always deploys with `enable_services = true`.
-  - `.github/CODEOWNERS` contains the placeholder `@OWNER` for the human to replace.
+  - `.github/CODEOWNERS` assigns every path to `@perspectivism` (set 2026-10-15).
   - **Flake observed once:** in the first `make ci` run `TestKeyRangeAllocationNoDuplicates` reported 136 of 10,000 creates failing (0 duplicates). Not reproducible in 7 further runs (3 alone, 3 under parallel `go test -race` load, 2 full suites) nor in the full `make ci` reruns. The test now records failure reasons (status/problem code or transport error) so a recurrence is diagnosable; suspected cause: DynamoDB Local latency spikes beyond the 200 ms deadline (→ 503). No assertion was loosened.
 - **Pending (closed-local):**
-  1. 👤 Push the repository to GitHub; replace `@OWNER` in `.github/CODEOWNERS`.
+  1. 👤 Push the repository to GitHub (`perspectivism/url-shortener-ecs-fargate`).
   2. 👤 Configure repository variables, environments `dev`/`prod` (deployment branch `main`; `prod` required reviewers + prevent self-review), environment variables and the `SMOKE_API_KEY` secrets — exact commands in [runbook §5.1](docs/runbook.md#51-cicd-setup-one-time--repository-admin).
   3. 👤 Branch ruleset on `main`: PR + 1 approval + code owners; required checks (the five `ci` jobs and `terraform plan (dev)`); block force pushes.
   4. 👤 Open a PR: `ci` green, plan comment posted by `terraform plan (dev)`.
@@ -340,7 +340,7 @@ instructs it.
 13. **Alerts:** `aws cloudwatch set-alarm-state --alarm-name shortener-dev-dlq --state-value ALARM --state-reason test` → 👤 email received; dashboard `shortener-dev` shows data in every widget.
 14. **Load baseline:** `LOAD_API_KEY=… make load BASE_URL=<cloudfront>`; `scripts/load-report.sh dev <start> <end>`; record RPS, p50/p95/p99, error rate, cache hit ratio in GATES (M6).
 15. **Cost:** ≥ 24 h after step 3: bootstrap `activate_cost_allocation_tag = true` → plan → approve → apply; ≥ 3 days: measured spend into cost.md §7.
-16. 👤 **CI/CD setup:** push to GitHub, replace `@OWNER` in `CODEOWNERS`, configure variables, environments (`prod` required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
+16. 👤 **CI/CD setup:** push to GitHub (`perspectivism/url-shortener-ecs-fargate`), configure variables, environments (`prod` required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
 17. **CD:** merge → `deploy`: dev push (verified digests), apply, smoke green; the prod job **waits for approval** (not approved by the agent).
 18. **Destroy plans (read-only):** `make plan-destroy ENV=dev` (and `ENV=prod` if deployed); bootstrap: `terraform -chdir=infra/bootstrap plan -destroy -var-file=terraform.tfvars` against the S3 backend — all succeed.
 19. **Only if requested:** `make teardown` (typed confirmation per step), then `make verify-teardown` → nothing left except KMS keys pending deletion.
