@@ -49,7 +49,7 @@ one-line change; nothing below has been deployed.
 ## M0 🧱 Foundations — ✅ closed
 
 - **Date:** 2026-10-14T03:55Z
-- **Commit:** `a3373ef` (tag `gate-m0`)
+- **Commit:** `7d49d8e` (tag `gate-m0`)
 - **Checks:**
 
 | Check | Command | Result | Evidence |
@@ -76,7 +76,7 @@ one-line change; nothing below has been deployed.
 ## M1 🔗 Core links (local) — ✅ closed
 
 - **Date:** 2026-10-14T13:40Z
-- **Commit:** `c469109` (code), `4da5f6b` (docs) (tag `gate-m1`)
+- **Commit:** `89456a0` (code), `031e282` (docs) (tag `gate-m1`)
 - **Checks:**
 
 | Check | Command | Result | Evidence |
@@ -106,7 +106,7 @@ one-line change; nothing below has been deployed.
 ## M2 📊 Click pipeline (local) — ✅ closed
 
 - **Date:** 2026-10-14T14:35Z
-- **Commit:** `143d2b4` (code), `f73974d` (docs) (tag `gate-m2`)
+- **Commit:** `7433e43` (code), `939f4c3` (docs) (tag `gate-m2`)
 - **Checks:**
 
 | Check | Command | Result | Evidence |
@@ -138,7 +138,7 @@ one-line change; nothing below has been deployed.
 ## M3 🐳 Containers — ✅ closed
 
 - **Date:** 2026-10-14T16:20Z
-- **Commit:** `16ead6d` (build), `5b4d824` (test isolation fix; gate run) (tag `gate-m3`)
+- **Commit:** `1db7b24` (build), `7e28f71` (test isolation fix; gate run) (tag `gate-m3`)
 - **Checks:**
 
 | Check | Command | Result | Evidence |
@@ -165,7 +165,7 @@ one-line change; nothing below has been deployed.
 ## M4 🏗️ Bootstrap, network & data — 🟡 closed-local
 
 - **Date:** 2026-10-14T18:10Z
-- **Commit:** `1de7ae6` (tag `gate-m4-local`)
+- **Commit:** `808714d` (tag `gate-m4-local`)
 - **Checks:**
 
 | Check | Command | Result | Evidence |
@@ -200,7 +200,7 @@ one-line change; nothing below has been deployed.
 ## M5 🚀 ECS services & edge — 🟡 closed-local
 
 - **Date:** 2026-10-14T21:40Z
-- **Commit:** `3b2d556` (tag `gate-m5-local`)
+- **Commit:** `2357c7b` (tag `gate-m5-local`)
 - **Checks:**
 
 | Check | Command | Result | Evidence |
@@ -332,7 +332,7 @@ one-line change; nothing below has been deployed.
 | Check | Command | Result | Evidence |
 | --- | --- | --- | --- |
 | Docs render and link | `make docs-check` | ✅ | markdownlint 0 issues (50 files); 44/44 Mermaid diagrams; 274/274 relative links |
-| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `84b1deb`; README local quickstart run verbatim: `make up`, key, create, `302 -> https://example.com/hello`, `total_clicks: 1`; integration tests from the clone green (86 s) |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `ccc8c12`; README local quickstart run verbatim: `make up`, key, create, `302 -> https://example.com/hello`, `total_clicks: 1`; integration tests from the clone green (86 s) |
 | ADRs complete | `scripts/check_adrs.py` (in `make docs-check`) | ✅ | 23 ADRs: all 20 required + 0021–0023; all Accepted; MADR sections + Interview Angle; all indexed |
 | Runbook ↔ alarms | `terraform test` (`infra/envs/{dev,prod}`) | ✅ | runbook `### 4.n` sections name exactly the 14 Terraform alarms; negative probe (renamed heading) fails |
 | Teardown tooling | `shellcheck`, `scripts/verify-teardown.sh --dry-run` | ✅ | shellcheck clean (teardown, bootstrap, verify-teardown); 34 read-only checks |
@@ -349,7 +349,7 @@ one-line change; nothing below has been deployed.
 ## Post-M9 change: batched exactly-once click counting — 🟡 closed-local
 
 - **Date:** 2026-10-15
-- **Commits:** `fab1d33`, `02fe0fc` (tag `post-m9-batched-counting-local`)
+- **Commits:** `0af8040`, `f1527c4` (tag `post-m9-batched-counting-local`)
 - **Why:** answers "what happens when a link goes viral?". With one transaction per click (12 WRU), a hot link's `DAY#` counter item hits DynamoDB's ~1,000 writes/s per-item limit at a few hundred clicks/s. Approved by the owner on 2026-10-15.
 - **Checks:**
 
@@ -357,8 +357,8 @@ one-line change; nothing below has been deployed.
 | --- | --- | --- | --- |
 | Unit (store, worker, config) | `make test` | ✅ | coverage 97.8 %; new tests: hot-link aggregation, ≤ 100-item packing, duplicates rebuilt from cancellation reasons, conflict/throttle retries, human + bot clicks sharing the `DAY#` item, visitors added before the counting commit |
 | Hot-link integration test | `make test-integration` (`TestHotLinkBatchedCounting`) | ✅ | 1,500 clicks on one link, each delivered twice: exact totals, dimensions and uniques; 1,500 duplicates detected; **17 transactions (88 clicks per counting write)** |
-| Full regression | `make ci` | ✅ | on `02fe0fc`: lint 0; coverage 97.8 %; integration (15 tests) 87 s; images 15.6–17.2 MB, UID 65532; checkov 884/0/75; tflint 0; 57 `terraform test` runs; 45/45 diagrams, 287/287 links; 24 ADRs; pins OK; zizmor clean; gitleaks 26 commits clean; govulncheck clean |
-| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `02fe0fc`: quickstart `302`, `total_clicks: 1`; integration green (95 s) |
+| Full regression | `make ci` | ✅ | on `f1527c4`: lint 0; coverage 97.8 %; integration (15 tests) 87 s; images 15.6–17.2 MB, UID 65532; checkov 884/0/75; tflint 0; 57 `terraform test` runs; 45/45 diagrams, 287/287 links; 24 ADRs; pins OK; zizmor clean; gitleaks 26 commits clean; govulncheck clean |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `f1527c4`: quickstart `302`, `total_clicks: 1`; integration green (95 s) |
 
 - **Second bug caught by the integration tests:** the first batched worker added visitors to the HyperLogLog *after* committing counters, so stats briefly showed clicks with `uniques = 0`. Visitors are now added before the commit (PFADD is idempotent on redelivery); covered by `TestUniquesAddedBeforeCounting`.
 - **Bug caught by the new integration test:** the first version sent two operations on the same `DAY#` item (human `clicks` and `bot_clicks`) in one transaction, which DynamoDB rejects. Fixed with one update per item carrying several `ADD` clauses; the unit-test fake now rejects duplicate items like DynamoDB does.
@@ -389,8 +389,8 @@ one-line change; nothing below has been deployed.
 
 | Check | Command | Result | Evidence |
 | --- | --- | --- | --- |
-| Full regression | `make ci` | ✅ | on `0d1d700`: lint 0; coverage 97.8 %; integration (16 tests) 91 s; checkov 884/0/75; 60 `terraform test` runs; 45/45 diagrams, 381/381 links; ADR links and doc facts OK; check-ignore OK; gitleaks 30 commits clean |
-| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `0d1d700`: quickstart `302`, `total_clicks: 1`; integration green |
+| Full regression | `make ci` | ✅ | on `6e00f0c`: lint 0; coverage 97.8 %; integration (16 tests) 91 s; checkov 884/0/75; 60 `terraform test` runs; 45/45 diagrams, 381/381 links; ADR links and doc facts OK; check-ignore OK; gitleaks 30 commits clean |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | clone of `6e00f0c`: quickstart `302`, `total_clicks: 1`; integration green |
 
 - **Pending (closed-local):** unchanged list below; first `make plan` after `aws login` is the first real-provider plan of everything added since M5 (observability, budget, endpoint policies, schedule group, Container Insights log group, retention).
 
@@ -423,10 +423,23 @@ one-line change; nothing below has been deployed.
 | Version and release logic | `make test-scripts` (also in `make ci` and the CI `go` job) | ✅ | version: no tag / on tag / after tag / dirty / non-release tags ignored; release: first v0.1.0, minor bump, manual major kept, bump after major |
 | Docs facts | `make docs-check` | ✅ | 9 quoted counts match incl. 60 `terraform test` runs; negative probe (README says 59) fails |
 | Workflows | `make check-workflows` + `zizmor --persona auditor` | ✅ | actionlint clean; zizmor no findings (auditor); pins OK; deploy gate OK (negative probes: push trigger and environment-less job both rejected) |
-| Full regression | `make ci` | ✅ | on `7cf8a1b`: lint 0; coverage 97.8 %; test-scripts OK; govulncheck clean; gitleaks 32 commits clean; integration (16 tests) 90 s; images arm64, UID 65532, Trivy 0 fixable HIGH/CRITICAL; checkov 884/0/75; 60 `terraform test` runs; 46/46 diagrams, 414/414 links; pins OK; deploy gate OK |
-| Fresh-clone test | `make fresh-clone-test` | ✅ | on `7cf8a1b`: Quickstart from a clean clone passed; integration 96 s |
+| Full regression | `make ci` | ✅ | on `9d9cb27`: lint 0; coverage 97.8 %; test-scripts OK; govulncheck clean; gitleaks 32 commits clean; integration (16 tests) 90 s; images arm64, UID 65532, Trivy 0 fixable HIGH/CRITICAL; checkov 884/0/75; 60 `terraform test` runs; 46/46 diagrams, 414/414 links; pins OK; deploy gate OK |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | on `9d9cb27`: Quickstart from a clean clone passed; integration 96 s |
 
 - **Pending:** the first release beyond v0.1.0 is created by the first prod deploy (pending cloud check 17 onward). Push tags with `git push origin v0.1.0` (gate tags `gate-*` are milestone markers; push them only if wanted).
+
+## Post-M9: commit trailers removed from history — ✅ closed
+
+- **Date:** 2026-10-15
+- **Why:** owner request: no `Co-Authored-By` trailer in any commit, now or later.
+- **Change:** `git filter-branch --msg-filter` removed the trailer line from all 32 commits before anything was pushed (no remote existed, so no published history changed). Tags moved to the rewritten commits; commit SHAs quoted in this file were updated to the new ones. Image tags recorded as evidence (M3 `5b4d82448194`, M5 `3b2d556f3a67`) stay as built: they name the pre-rewrite commits.
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Content unchanged | compare tree, author, committer and dates per commit, before vs after | ✅ | 33/33 commits identical except message |
+| No trailers | `git log main --tags --format=%B \| grep -ci co-authored` | ✅ | 0 |
+| Tags | each tag's old target mapped to its new target | ✅ | 11/11 |
 
 ## 📋 Pending cloud checks summary
 
