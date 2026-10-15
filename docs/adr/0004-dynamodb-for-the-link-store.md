@@ -1,6 +1,6 @@
 # ADR-0004: DynamoDB for the link store
 
-- **Status:** Accepted
+- **Status:** Accepted (eventually consistent redirect reads superseded by [ADR-0031](0031-consistent-link-reads-and-owned-idempotency-claims.md): link reads are strongly consistent)
 - **Date:** 2026-10-14
 - **Deciders:** project owner, coding agent
 

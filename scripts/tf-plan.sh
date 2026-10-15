@@ -25,9 +25,12 @@ case "$target" in
   *) echo "unknown root: $target" >&2; exit 2 ;;
 esac
 dir="$ROOT/$rel"
-aws sts get-caller-identity >/dev/null 2>&1 || { echo "AWS credentials unavailable: plan needs read access (local mode: record as pending)" >&2; exit 1; }
 
-mapfile -t varfiles < <("$ROOT/scripts/tf-varfiles.sh" "$target")
+# Settings first: a rejected or missing deploy.tfvars stops the plan. (A plain
+# assignment propagates the helper's exit status under set -e; mapfile reading
+# from <(...) would silently ignore it.)
+varfile_list="$("$ROOT/scripts/tf-varfiles.sh" "$target")"
+mapfile -t varfiles <<<"$varfile_list"
 var_args=()
 for f in "${varfiles[@]}"; do var_args+=("-var-file=$f"); done
 # CI must never plan against empty local state or without its per-run overlay.
@@ -35,6 +38,7 @@ if [[ "${CI:-}" == true ]]; then
   [[ -f "$dir/backend.hcl" ]] || { echo "CI: no backend.hcl (run scripts/ci-config.sh)" >&2; exit 1; }
   [[ "$target" == bootstrap || " ${varfiles[*]} " == *" terraform.tfvars.json "* ]] || { echo "CI: no terraform.tfvars.json (run scripts/ci-config.sh)" >&2; exit 1; }
 fi
+aws sts get-caller-identity >/dev/null 2>&1 || { echo "AWS credentials unavailable: plan needs read access (local mode: record as pending)" >&2; exit 1; }
 
 if [[ -f "$dir/backend.hcl" ]]; then
   work="$dir"

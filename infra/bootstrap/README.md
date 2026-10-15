@@ -69,7 +69,7 @@ One-time, per-account root ([ADR-0016](../../docs/adr/0016-terraform-layout-envi
 | Name | Description |
 | ---- | ----------- |
 | apply\_role\_arns | Apply role per GitHub environment (environment variable AWS\_APPLY\_ROLE\_ARN). |
-| deploy\_plan\_role\_arns | Deploy plan role per environment, for the GitHub environments dev-plan and prod-plan (their variable AWS\_DEPLOY\_PLAN\_ROLE\_ARN). |
+| deploy\_plan\_role\_arn | Role for the deploy workflow's plan jobs on main (repository variable AWS\_DEPLOY\_PLAN\_ROLE\_ARN). |
 | permissions\_boundary\_arn | Boundary attached to every CI role and every role CI creates. |
 | plan\_role\_arn | Role for pull-request plans (GitHub variable AWS\_PLAN\_ROLE\_ARN). |
 | state\_bucket | Terraform state bucket (backend.hcl bucket). |

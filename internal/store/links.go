@@ -155,11 +155,14 @@ func isConditionFailed(err error) bool {
 	return errors.As(err, &ccf)
 }
 
-// GetLink implements access pattern 1 (eventually consistent GetItem).
+// GetLink implements access pattern 1 with a strongly consistent GetItem: a
+// redirect that misses the cache must see a completed disable or edit, never
+// an older copy of the item (ADR-0031). It runs only on cache misses, so the
+// doubled read cost is small.
 func (s *Links) GetLink(ctx context.Context, code string) (links.Link, error) {
 	ctx, cancel := s.ctx(ctx)
 	defer cancel()
-	out, err := s.db.GetItem(ctx, &dynamodb.GetItemInput{TableName: &s.table, Key: key(linkPrefix + code)})
+	out, err := s.db.GetItem(ctx, &dynamodb.GetItemInput{TableName: &s.table, Key: key(linkPrefix + code), ConsistentRead: aws.Bool(true)})
 	if err != nil {
 		return links.Link{}, fmt.Errorf("get link: %w", err)
 	}

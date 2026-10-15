@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/perspectivism/url-shortener-ecs-fargate/internal/links"
@@ -71,9 +72,13 @@ func (lc *LinkCache) InvalidateLink(ctx context.Context, code string) error {
 // IdempotencyTTL is how long create responses are replayable (SPEC §7).
 const IdempotencyTTL = 24 * time.Hour
 
-// IdemClaimTTL bounds how long a claimed key blocks repeats if the request
-// that claimed it dies before finishing (create takes well under a second).
+// IdemClaimTTL is the claim lease: how long a claimed key blocks repeats if
+// the request that claimed it dies. The API bounds the claimed work to
+// IdemWorkDeadline, well inside the lease, so a live request never outlives it.
 const IdemClaimTTL = 30 * time.Second
+
+// IdemWorkDeadline bounds the work done under a claim (see IdemClaimTTL).
+const IdemWorkDeadline = IdemClaimTTL / 3
 
 // IdemRecord is a stored response for an Idempotency-Key. Status 0 marks a
 // claim: the first request is still being processed.
@@ -81,6 +86,8 @@ type IdemRecord struct {
 	Fingerprint string          `json:"f"`
 	Status      int             `json:"s"`
 	Body        json.RawMessage `json:"b"`
+	// Token identifies the request holding a claim (claims only).
+	Token string `json:"t,omitempty"`
 }
 
 // Idempotency stores create responses under idem:{owner}:{sha256(key)}. The
@@ -112,47 +119,71 @@ func (i *Idempotency) Get(ctx context.Context, owner, key string) (IdemRecord, b
 }
 
 // Claim atomically reserves owner/key for the request with fingerprint (SET NX,
-// IdemClaimTTL). It returns claimed=true if this request owns the key;
-// otherwise the existing record (a claim, Status 0, or a finished response).
-// Unlike Get+Put, two concurrent requests cannot both proceed.
-func (i *Idempotency) Claim(ctx context.Context, owner, key, fingerprint string) (IdemRecord, bool, error) {
-	b, err := json.Marshal(IdemRecord{Fingerprint: fingerprint})
+// IdemClaimTTL). If this request now owns the key, claim is the exact value it
+// wrote (with a unique token): pass it to Put or Release, which act only while
+// the key still holds that claim. Otherwise claim is empty and rec is the
+// existing record (another claim, Status 0, or a finished response). Two
+// concurrent requests cannot both proceed.
+func (i *Idempotency) Claim(ctx context.Context, owner, key, fingerprint string) (rec IdemRecord, claim string, err error) {
+	b, err := json.Marshal(IdemRecord{Fingerprint: fingerprint, Token: uuid.NewString()})
 	if err != nil {
-		return IdemRecord{}, false, fmt.Errorf("idempotency encode: %w", err)
+		return IdemRecord{}, "", fmt.Errorf("idempotency encode: %w", err)
 	}
 	ok, err := i.c.SetNX(ctx, idemKey(owner, key), b, IdemClaimTTL).Result()
 	if err != nil {
-		return IdemRecord{}, false, fmt.Errorf("idempotency claim: %w", err)
+		return IdemRecord{}, "", fmt.Errorf("idempotency claim: %w", err)
 	}
 	if ok {
-		return IdemRecord{}, true, nil
+		return IdemRecord{}, string(b), nil
 	}
 	rec, found, err := i.Get(ctx, owner, key)
 	if err != nil {
-		return IdemRecord{}, false, err
+		return IdemRecord{}, "", err
 	}
 	if !found { // expired between SETNX and GET: try once more
 		return i.Claim(ctx, owner, key, fingerprint)
 	}
-	return rec, false, nil
+	return rec, "", nil
 }
 
-// Release drops a claim whose request failed, so a retry can proceed.
-func (i *Idempotency) Release(ctx context.Context, owner, key string) error {
-	if err := i.c.Del(ctx, idemKey(owner, key)).Err(); err != nil {
+// releaseScript deletes the key only while it holds this request's claim.
+var releaseScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0`)
+
+// finishScript stores the response while the key holds this request's claim,
+// or is empty (the claim expired and nobody else claimed it: the link exists,
+// so its response must be replayable). Never over another request's record.
+var finishScript = redis.NewScript(`
+local v = redis.call("GET", KEYS[1])
+if v == ARGV[1] or v == false then
+  redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3])
+  return 1
+end
+return 0`)
+
+// Release drops this request's claim (its create failed) so a retry can
+// proceed. A key that no longer holds the claim is left alone.
+func (i *Idempotency) Release(ctx context.Context, owner, key, claim string) error {
+	if err := releaseScript.Run(ctx, i.c, []string{idemKey(owner, key)}, claim).Err(); err != nil {
 		return fmt.Errorf("idempotency release: %w", err)
 	}
 	return nil
 }
 
-// Put stores the finished response rec for 24 h (replacing the claim).
-func (i *Idempotency) Put(ctx context.Context, owner, key string, rec IdemRecord) error {
+// Put stores the finished response rec for 24 h in place of this request's
+// claim. It reports false, storing nothing, if another request's record holds
+// the key.
+func (i *Idempotency) Put(ctx context.Context, owner, key, claim string, rec IdemRecord) (bool, error) {
 	b, err := json.Marshal(rec)
 	if err != nil {
-		return fmt.Errorf("idempotency encode: %w", err)
+		return false, fmt.Errorf("idempotency encode: %w", err)
 	}
-	if err := i.c.Set(ctx, idemKey(owner, key), b, IdempotencyTTL).Err(); err != nil {
-		return fmt.Errorf("idempotency set: %w", err)
+	n, err := finishScript.Run(ctx, i.c, []string{idemKey(owner, key)}, claim, b, int(IdempotencyTTL/time.Second)).Int()
+	if err != nil {
+		return false, fmt.Errorf("idempotency set: %w", err)
 	}
-	return nil
+	return n == 1, nil
 }

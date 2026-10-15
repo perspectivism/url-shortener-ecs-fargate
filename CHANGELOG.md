@@ -23,10 +23,14 @@ checks are pending, see [GATES.md](GATES.md)).
   environment's saved plan before it is applied
   ([ADR-0027](docs/adr/0027-manual-approval-for-every-deploy.md),
   [ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
-- **Review fixes:** cache invalidation fences, atomic idempotency claims,
-  URL-bound scan verdicts and a 4-day dedupe window
-  ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md)); edge logs
+- **Review fixes:** cache invalidation fences and strongly consistent link
+  reads, atomic idempotency claims with owner tokens, URL-bound scan verdicts
+  and a 4-day dedupe window
+  ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md),
+  [ADR-0031](docs/adr/0031-consistent-link-reads-and-owned-idempotency-claims.md));
+  two GitHub environments, with read-only plan jobs on main
+  ([ADR-0032](docs/adr/0032-two-github-environments-deploy-plans-trust-main.md)); edge logs
   without visitor IPs and no WAF request sampling
   ([ADR-0029](docs/adr/0029-edge-log-privacy.md)).
-- **Docs:** README interview walkthrough, design doc, 30 ADRs, threat model, cost model.
+- **Docs:** README interview walkthrough, design doc, 32 ADRs, threat model, cost model.
 - **License:** MIT.

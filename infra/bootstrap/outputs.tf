@@ -13,9 +13,9 @@ output "plan_role_arn" {
   value       = aws_iam_role.plan.arn
 }
 
-output "deploy_plan_role_arns" {
-  description = "Deploy plan role per environment, for the GitHub environments dev-plan and prod-plan (their variable AWS_DEPLOY_PLAN_ROLE_ARN)."
-  value       = { for k, r in aws_iam_role.deploy_plan : k => r.arn }
+output "deploy_plan_role_arn" {
+  description = "Role for the deploy workflow's plan jobs on main (repository variable AWS_DEPLOY_PLAN_ROLE_ARN)."
+  value       = aws_iam_role.deploy_plan.arn
 }
 
 output "apply_role_arns" {

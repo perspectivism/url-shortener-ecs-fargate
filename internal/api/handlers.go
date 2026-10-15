@@ -123,11 +123,11 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(body)
 	fingerprint := hex.EncodeToString(sum[:])
-	claimed := false
+	claim := "" // this request's claim on the key, if it holds one
 	if hasIdem {
 		rec, mine, ok := s.claimIdempotent(r, p.OwnerID, idemKey, fingerprint)
-		claimed = mine
-		if ok && !mine {
+		claim = mine
+		if ok && mine == "" {
 			if rec.Fingerprint != fingerprint {
 				badRequest(w, r, "Idempotency-Key was already used with a different request body")
 				return
@@ -148,12 +148,18 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// A claimed key is released on any failure, so the client can retry.
+	// A claimed key is released on any failure, so the client can retry, and
+	// the claimed work is bounded well inside the claim's lease, so it cannot
+	// still be running when another request may claim the key.
+	ctx := r.Context()
 	created := false
-	if claimed {
+	if claim != "" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cache.IdemWorkDeadline)
+		defer cancel()
 		defer func() {
 			if !created {
-				s.releaseIdempotent(r, p.OwnerID, idemKey)
+				s.releaseIdempotent(r, p.OwnerID, idemKey, claim)
 			}
 		}()
 	}
@@ -172,7 +178,7 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 		}
 		in.ExpiresAt = &t
 	}
-	l, err := s.d.Links.Create(r.Context(), p.OwnerID, in)
+	l, err := s.d.Links.Create(ctx, p.OwnerID, in)
 	if err != nil {
 		s.writeError(w, r, err)
 		return
@@ -182,37 +188,40 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 	httpx.AddLogAttrs(r.Context(), "code", l.Code)
 	if hasIdem {
 		b, _ := json.Marshal(resp)
-		s.storeIdempotent(r, p.OwnerID, idemKey, cache.IdemRecord{Fingerprint: fingerprint, Status: http.StatusCreated, Body: b})
+		s.storeIdempotent(r, p.OwnerID, idemKey, claim, cache.IdemRecord{Fingerprint: fingerprint, Status: http.StatusCreated, Body: b})
 	}
 	w.Header().Set("Location", "/api/v1/links/"+l.Code)
 	httpx.WriteJSON(w, http.StatusCreated, resp)
 }
 
-// claimIdempotent reserves the key. It returns the existing record when
-// another request holds or finished it (ok && !mine). Idempotency failures
-// fail open: the request is processed normally (ok == false).
-func (s *Server) claimIdempotent(r *http.Request, owner, key, fingerprint string) (rec cache.IdemRecord, mine, ok bool) {
+// claimIdempotent reserves the key. mine is this request's claim (empty if
+// another request holds or finished the key, whose record is rec). Idempotency
+// failures fail open: the request is processed normally (ok == false).
+func (s *Server) claimIdempotent(r *http.Request, owner, key, fingerprint string) (rec cache.IdemRecord, mine string, ok bool) {
 	rec, mine, err := s.d.Idempotency.Claim(r.Context(), owner, key, fingerprint)
 	if err != nil {
 		s.d.Metrics.Count(telemetry.CacheErrors, 1)
 		s.d.Logger.WarnContext(r.Context(), "idempotency claim failed; processing request", "err", err)
-		return cache.IdemRecord{}, false, false
+		return cache.IdemRecord{}, "", false
 	}
 	return rec, mine, true
 }
 
-func (s *Server) releaseIdempotent(r *http.Request, owner, key string) {
+func (s *Server) releaseIdempotent(r *http.Request, owner, key, claim string) {
 	ctx := context.WithoutCancel(r.Context())
-	if err := s.d.Idempotency.Release(ctx, owner, key); err != nil {
+	if err := s.d.Idempotency.Release(ctx, owner, key, claim); err != nil {
 		s.d.Metrics.Count(telemetry.CacheErrors, 1)
 		s.d.Logger.WarnContext(r.Context(), "idempotency release failed; the key unblocks when the claim expires", "err", err)
 	}
 }
 
-func (s *Server) storeIdempotent(r *http.Request, owner, key string, rec cache.IdemRecord) {
-	if err := s.d.Idempotency.Put(context.WithoutCancel(r.Context()), owner, key, rec); err != nil {
+func (s *Server) storeIdempotent(r *http.Request, owner, key, claim string, rec cache.IdemRecord) {
+	stored, err := s.d.Idempotency.Put(context.WithoutCancel(r.Context()), owner, key, claim, rec)
+	if err != nil {
 		s.d.Metrics.Count(telemetry.CacheErrors, 1)
 		s.d.Logger.WarnContext(r.Context(), "idempotency store failed", "err", err)
+	} else if !stored {
+		s.d.Logger.WarnContext(r.Context(), "idempotency key now belongs to another request; response not stored")
 	}
 }
 

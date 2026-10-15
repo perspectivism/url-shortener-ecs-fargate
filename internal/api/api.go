@@ -40,12 +40,13 @@ type Limiter interface {
 }
 
 // IdempotencyStore persists create responses. Claim reserves a key atomically
-// across API tasks (Valkey SET NX); Put stores the response; Release drops a
-// claim whose request failed.
+// across API tasks (Valkey SET NX) and returns this request's claim; Put
+// stores the response and Release drops the claim, each only while the key
+// still holds that claim.
 type IdempotencyStore interface {
-	Claim(ctx context.Context, owner, key, fingerprint string) (cache.IdemRecord, bool, error)
-	Put(ctx context.Context, owner, key string, rec cache.IdemRecord) error
-	Release(ctx context.Context, owner, key string) error
+	Claim(ctx context.Context, owner, key, fingerprint string) (rec cache.IdemRecord, claim string, err error)
+	Put(ctx context.Context, owner, key, claim string, rec cache.IdemRecord) (bool, error)
+	Release(ctx context.Context, owner, key, claim string) error
 }
 
 // Deps wires a Server.

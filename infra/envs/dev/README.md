@@ -1,6 +1,6 @@
 # Environment: dev
 
-Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` are identical in `dev` and `prod` (checked by `scripts/check-env-parity.sh`); only variable defaults differ. Copy `example.tfvars` to `terraform.tfvars` and `backend.hcl.example` to `backend.hcl` (both gitignored; `make bootstrap` generates `backend.hcl`).
+Environment root wiring the modules. `main.tf`, `outputs.tf` and `versions.tf` are identical in `dev` and `prod` (checked by `scripts/check-env-parity.sh`); only variable defaults differ. Settings live in the committed `deploy.tfvars`, which every plan uses ([ADR-0028](../../../docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)); `scripts/tf-varfiles.sh` rejects sensitive variables, email addresses and per-run values in it. Per-run values go in the gitignored overlay `terraform.tfvars` locally (`alert_email`, and `enable_services` / `image_tag` for phase 2) or `terraform.tfvars.json` in CI (`scripts/ci-config.sh`). `backend.hcl` is gitignored too: copy `backend.hcl.example`, or let `make bootstrap` generate it.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

@@ -470,6 +470,30 @@ one-line change; nothing below has been deployed.
 - **Deviations from SPEC:** N6: WAF logs of blocked/counted requests keep the client IP (WAF cannot redact it; 14/90 days). §5.2: dedupe marker TTL is write time + 4 days (SPEC: now + 3 days). §14: per-environment plan job before the approval-gated apply.
 - **Pending (closed-local):** the new bootstrap roles, edge logging settings and plan hand-over are verified only in the pending cloud checks below (items 2, 16, 17, 19).
 
+## Post-M9: second review fixes and two environments — 🟡 closed-local
+
+- **Date:** 2026-10-15
+- **Why:** a second external review found three remaining issues and one stale doc; separately, the owner asked for two GitHub environments instead of four.
+- **Fixes:**
+  - **Immediate disable relied on an eventually consistent read:** link reads use `ConsistentRead` ([ADR-0031](docs/adr/0031-consistent-link-reads-and-owned-idempotency-claims.md)).
+  - **Idempotency claims had no owner:** each claim carries a random token; release and finish are Valkey scripts conditional on it; claimed work has a 10 s deadline inside the 30 s lease.
+  - **Var-file errors were swallowed** (`mapfile < <(…)` ignores the helper's exit status): `tf-plan.sh` and `teardown.sh` capture the output in an assignment and resolve settings before anything else. The guard now also rejects sensitive variables, email addresses and `enable_services` in `deploy.tfvars`.
+  - **Env READMEs** described `example.tfvars`; they now describe `deploy.tfvars` and the overlay.
+  - **Two environments** ([ADR-0032](docs/adr/0032-two-github-environments-deploy-plans-trust-main.md)): plan jobs run without an environment under one read-only role `shortener-ci-deploy-plan` that trusts only `repo:<repo>:ref:refs/heads/main`; only `dev` and `prod` exist (required reviewers). Replaces the `dev-plan`/`prod-plan` environments and `shortener-ci-plan-{dev,prod}` roles of the previous entry.
+- **Checks:**
+
+| Check | Command | Result | Evidence |
+| --- | --- | --- | --- |
+| Lint, unit, scripts, vuln, secrets | `make lint test test-scripts vuln test-secret-scan secret-scan check-ignore` | ✅ | lint 0; coverage 97.5 %; test-scripts OK incl. new `test-varfiles.sh` (9 cases); govulncheck clean; gitleaks 37 commits clean |
+| Integration | `make test-integration` | ✅ | 17 tests, 81 s and 79 s on two runs. The first run inside `make ci` failed once: a DynamoDB Local `PutItem` took 222 ms, past the 200 ms deadline (503), in `TestValidationAndAuthErrors`, a path this change does not touch. Emulator latency, not a regression; the deadline was not loosened |
+| Images, Terraform, docs, workflows | `make images check-images scan-images test-image-secret-scan tf-check docs-check check-workflows` | ✅ | arm64, UID 65532, 15.6–17.2 MB; checkov 903/0/75; 61 `terraform test` runs; 47/47 diagrams, 504/504 links; 32 ADRs; doc facts OK; pins OK; zizmor clean; deploy gate OK |
+| Regression tests fail without the fix | negative probes | ✅ | eventually consistent read → `TestGetLinkSeesCompletedDisable` gets `active`; unconditional release/put → `TestIdempotencyClaimOwnership` overwrites B's record; previous `tf-plan.sh` / `teardown.sh` → `test-varfiles.sh` fails |
+| Deploy gate | `scripts/check-deploy-gate.sh` + 6 negative probes | ✅ | rejects: apply job without its plan dependency, apply without the saved-plan check, apply role in a plan job, push/apply in a job without an environment, any environment other than dev/prod, a push trigger |
+
+- **Decisions / ADRs:** [ADR-0031](docs/adr/0031-consistent-link-reads-and-owned-idempotency-claims.md), [ADR-0032](docs/adr/0032-two-github-environments-deploy-plans-trust-main.md); status notes on [ADR-0004](docs/adr/0004-dynamodb-for-the-link-store.md)/0028/0030.
+- **Deviations from SPEC:** SPEC §12 and §17 and AGENTS.md §6 name `example.tfvars` for the environment roots; they now use the committed `deploy.tfvars` ([ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)). The bootstrap root keeps `example.tfvars`.
+- **Pending (closed-local):** pending items 2 (new role), 16 (variables, two environments) and 17 (deploy).
+
 ## 📋 Pending cloud checks summary
 
 Complete and ordered; every ☁️ mutating step is plan → 👤 approve → apply of
@@ -491,7 +515,7 @@ instructs it.
 13. **Alerts:** `aws cloudwatch set-alarm-state --alarm-name shortener-dev-dlq --state-value ALARM --state-reason test` → 👤 email received; dashboard `shortener-dev` shows data in every widget.
 14. **Load baseline:** `LOAD_API_KEY=… make load BASE_URL=<cloudfront>`; `scripts/load-report.sh dev <start> <end>`; record RPS, p50/p95/p99, error rate, cache hit ratio in GATES (M6).
 15. **Cost:** ≥ 24 h after step 3: bootstrap `activate_cost_allocation_tag = true` → plan → approve → apply; ≥ 3 days: measured spend into cost.md §7.
-16. 👤 **CI/CD setup:** push to GitHub (`perspectivism/url-shortener-ecs-fargate`), configure variables, the four environments (`dev-plan`/`prod-plan` without reviewers; `dev`/`prod` with required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
+16. 👤 **CI/CD setup:** push to GitHub (`perspectivism/url-shortener-ecs-fargate`), configure variables, the `dev` and `prod` environments (required reviewers), secrets and the `main` ruleset (runbook §5.1); open a PR → `ci` green + plan comment.
 17. **CD:** 👤 start **Actions → deploy → Run workflow** on `main` → `plan-dev` prints the plan and stores it under `plans/dev/` in the state bucket → 👤 read it and approve `dev` → hash verified, push (verified digests), apply, smoke green → `plan-prod` prints the prod plan → the prod job **waits for approval** (not approved by the agent). Merges alone never deploy.
 18. **Destroy plans (read-only):** `make plan-destroy ENV=dev` (and `ENV=prod` if deployed); bootstrap: `terraform -chdir=infra/bootstrap plan -destroy -var-file=terraform.tfvars` against the S3 backend — all succeed.
 19. **Edge privacy and sampling (after phase 2):** `aws wafv2 get-web-acl` shows `SampledRequestsEnabled: false` everywhere; a CloudFront log record has no `c-ip`, `x-forwarded-for`, referrer, user agent, query or cookie fields; the WAF log group receives only BLOCK/COUNT records (e.g. after the WAF burst smoke test).

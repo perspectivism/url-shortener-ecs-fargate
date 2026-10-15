@@ -6,9 +6,9 @@
 # Approval model: nothing deploys automatically, and reviewers approve a plan.
 #   1. A human starts this workflow (Actions -> deploy -> Run workflow) on main;
 #      there is no push or schedule trigger, and other refs are refused.
-#   2. plan-<env> runs in the `<env>-plan` environment (no reviewers) with a
-#      read-only role, prints the full plan and stores the saved plan in the
-#      private state bucket; its SHA-256 is the job output.
+#   2. plan-<env> runs without an environment, under a read-only role that
+#      trusts only main (ADR-0032); it prints the full plan and stores the
+#      saved plan in the private state bucket; its SHA-256 is the job output.
 #   3. <env> runs in the `<env>` environment, whose required reviewer approves
 #      after reading that plan. Only then can it assume the apply role; it
 #      applies the saved plan only if its SHA-256 matches (scripts/saved-plan.sh).
@@ -17,11 +17,11 @@
 # scripts/tf-apply.sh and scripts/push-images.sh.
 #
 # Prerequisites (runbook "CI/CD setup"): bootstrap applied, phase 1 applied and
-# secrets seeded; GitHub environments dev-plan/prod-plan (variables
-# AWS_DEPLOY_PLAN_ROLE_ARN, ALERT_EMAIL) and dev/prod (required reviewers,
+# secrets seeded; GitHub environments dev and prod (required reviewers,
 # variable AWS_APPLY_ROLE_ARN, secret SMOKE_API_KEY); repository variables
-# TF_STATE_BUCKET, TF_STATE_KMS_KEY_ARN and AWS_REGION. Every other setting is
-# in the committed infra/envs/<env>/deploy.tfvars (ADR-0028).
+# TF_STATE_BUCKET, TF_STATE_KMS_KEY_ARN, AWS_REGION, AWS_DEPLOY_PLAN_ROLE_ARN
+# and ALERT_EMAIL. Every other setting is in the committed
+# infra/envs/<env>/deploy.tfvars (ADR-0028).
 name: deploy
 
 on:
@@ -68,10 +68,10 @@ jobs:
     needs: [build]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: dev-plan # no reviewers; read-only role (OIDC sub ...:environment:dev-plan)
+    # No environment: the read-only deploy plan role trusts only main (OIDC sub ...:ref:refs/heads/main).
     permissions:
       contents: read
-      id-token: write # OIDC for the read-only dev deploy plan role
+      id-token: write # OIDC for the read-only deploy plan role
     outputs:
       plan_sha256: ${{ steps.store.outputs.sha256 }}
     steps:
@@ -176,10 +176,10 @@ jobs:
     needs: [build, dev]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: prod-plan # no reviewers; read-only role (OIDC sub ...:environment:prod-plan)
+    # No environment: the read-only deploy plan role trusts only main (OIDC sub ...:ref:refs/heads/main).
     permissions:
       contents: read
-      id-token: write # OIDC for the read-only prod deploy plan role
+      id-token: write # OIDC for the read-only deploy plan role
     outputs:
       plan_sha256: ${{ steps.store.outputs.sha256 }}
     steps:

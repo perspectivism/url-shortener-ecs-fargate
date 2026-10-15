@@ -96,7 +96,7 @@ data "aws_iam_openid_connect_provider" "github" {
 data "aws_iam_policy_document" "trust" {
   for_each = merge(
     { plan = "repo:${var.repository}:pull_request" },
-    { for env in var.environments : "plan-${env}" => "repo:${var.repository}:environment:${env}-plan" },
+    { deploy-plan = "repo:${var.repository}:ref:refs/heads/main" },
     { for env in var.environments : "apply-${env}" => "repo:${var.repository}:environment:${env}" },
   )
 
@@ -304,47 +304,42 @@ resource "aws_iam_role_policy" "plan" {
   policy = data.aws_iam_policy_document.plan.json
 }
 
-# --- Deploy plan roles (GitHub environments dev-plan / prod-plan, ADR-0028) -------
+# --- Deploy plan role (deploy.yml plan jobs on main, ADR-0028, ADR-0032) --------
 # The deploy workflow plans first, without approval, so reviewers approve the
-# saved plan itself. Same read-only permissions as the PR plan role, plus
-# writing the saved plan under plans/<env>/ in the state bucket, where only the
-# CI roles can read it; the apply job verifies its SHA-256 before applying.
+# saved plan itself. The plan jobs run without a GitHub environment, so the
+# role trusts the main branch (repo:<repo>:ref:refs/heads/main): only reviewed
+# code runs there. Same read-only permissions as the PR plan role, plus
+# writing saved plans under plans/ in the state bucket, where only the CI
+# roles can read them; the apply job verifies its plan's SHA-256 from the same
+# run, so a plan written by any other job is refused.
 
 data "aws_iam_policy_document" "deploy_plan" {
-  for_each = var.environments
-
   source_policy_documents = [data.aws_iam_policy_document.plan.json]
 
   statement {
     sid       = "SavedPlan"
     effect    = "Allow"
     actions   = ["s3:PutObject"]
-    resources = ["${local.state_arn}/plans/${each.key}/*"]
+    resources = ["${local.state_arn}/plans/*"]
   }
 }
 
 resource "aws_iam_role" "deploy_plan" {
-  for_each = var.environments
-
-  name                 = "${var.project}-ci-plan-${each.key}"
-  assume_role_policy   = data.aws_iam_policy_document.trust["plan-${each.key}"].json
+  name                 = "${var.project}-ci-deploy-plan"
+  assume_role_policy   = data.aws_iam_policy_document.trust["deploy-plan"].json
   permissions_boundary = aws_iam_policy.boundary.arn
   max_session_duration = 3600
 }
 
 resource "aws_iam_role_policy_attachment" "deploy_plan_read_only" {
-  for_each = var.environments
-
-  role       = aws_iam_role.deploy_plan[each.key].name
+  role       = aws_iam_role.deploy_plan.name
   policy_arn = data.aws_iam_policy.read_only.arn
 }
 
 resource "aws_iam_role_policy" "deploy_plan" {
-  for_each = var.environments
-
   name   = "state-read-plan-write"
-  role   = aws_iam_role.deploy_plan[each.key].id
-  policy = data.aws_iam_policy_document.deploy_plan[each.key].json
+  role   = aws_iam_role.deploy_plan.id
+  policy = data.aws_iam_policy_document.deploy_plan.json
 }
 
 # --- Apply roles (GitHub environments dev / prod) ---------------------------------

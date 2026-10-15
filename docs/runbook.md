@@ -411,28 +411,26 @@ except the smoke API keys.
    gh variable set AWS_REGION --body us-east-1
    gh variable set TF_STATE_BUCKET --body "$(terraform -chdir=infra/bootstrap output -raw state_bucket)"
    gh variable set TF_STATE_KMS_KEY_ARN --body "$(terraform -chdir=infra/bootstrap output -raw state_kms_key_arn)"
-   gh variable set AWS_PLAN_ROLE_ARN --body "$(terraform -chdir=infra/bootstrap output -raw plan_role_arn)"
+   gh variable set AWS_PLAN_ROLE_ARN --body "$(terraform -chdir=infra/bootstrap output -raw plan_role_arn)"                # PR plans
+   gh variable set AWS_DEPLOY_PLAN_ROLE_ARN --body "$(terraform -chdir=infra/bootstrap output -raw deploy_plan_role_arn)"  # deploy plans
+   gh variable set ALERT_EMAIL --body "$ALERT_EMAIL"   # the address that receives alarms
    ```
 
-2. **Environments** (Settings → Environments), four of them
-   ([ADR-0028](adr/0028-approve-the-saved-plan-versioned-environment-settings.md)):
-   - **`dev-plan` and `prod-plan`:** restrict deployment branches to `main`;
-     **no reviewers** (they only plan, with a read-only role).
-   - **`dev` and `prod`:** restrict deployment branches to `main`, and add
-     **required reviewers** (the owner). Nothing deploys without approval, and
-     the reviewer approves the saved plan the matching `plan-<env>` job
-     printed ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md)).
-     Leave "Prevent self-review" **off** while you are the only reviewer: it
-     stops the person who started a run from approving it, so every deploy
-     would wait forever. Turn it on once a second reviewer exists.
-
-   Then set the variables:
+2. **Environments `dev` and `prod`** (Settings → Environments): restrict
+   deployment branches to `main`, and add **required reviewers** (the owner).
+   Nothing deploys without approval, and the reviewer approves the saved plan
+   that the matching `plan-<env>` job printed
+   ([ADR-0027](adr/0027-manual-approval-for-every-deploy.md),
+   [ADR-0028](adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
+   The plan jobs need no environment: they run on `main` under a read-only
+   role ([ADR-0032](adr/0032-two-github-environments-deploy-plans-trust-main.md)).
+   Leave "Prevent self-review" **off** while you are the only reviewer: it
+   stops the person who started a run from approving it, so every deploy
+   would wait forever. Turn it on once a second reviewer exists. Then set
+   each environment's apply role:
 
    ```bash
    for env in dev prod; do
-     gh variable set AWS_DEPLOY_PLAN_ROLE_ARN --env "$env-plan" \
-       --body "$(terraform -chdir=infra/bootstrap output -json deploy_plan_role_arns | jq -r --arg e "$env" '.[$e]')"
-     gh variable set ALERT_EMAIL --env "$env-plan" --body "$ALERT_EMAIL"   # the address that receives alarms
      gh variable set AWS_APPLY_ROLE_ARN --env "$env" \
        --body "$(terraform -chdir=infra/bootstrap output -json apply_role_arns | jq -r --arg e "$env" '.[$e]')"
    done
@@ -546,8 +544,9 @@ curl -fsS -X POST -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: applic
 `reason` is required (at most 256 characters) and is returned as
 `disabled_reason`. The link answers 410 at once and stays disabled: every
 mutation replaces the cache entry with a 10-second fence that in-flight
-cache fills cannot overwrite
-([ADR-0030](adr/0030-consistency-under-concurrency.md)). If
+cache fills cannot overwrite, and cache misses read DynamoDB strongly
+consistently ([ADR-0030](adr/0030-consistency-under-concurrency.md),
+[ADR-0031](adr/0031-consistent-link-reads-and-owned-idempotency-claims.md)). If
 `cache-invalidation-failed` fires, re-issue the call (4.9). Re-enable with
 `POST …/enable` (no body). The nightly rescan disables links that Safe
 Browsing flags by itself.

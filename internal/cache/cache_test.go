@@ -221,8 +221,8 @@ func TestIdempotency(t *testing.T) {
 		t.Fatal("expected miss")
 	}
 	rec := IdemRecord{Fingerprint: "fp", Status: 201, Body: json.RawMessage(`{"code":"abc"}`)}
-	if err := idem.Put(ctx, "alice", "k1", rec); err != nil {
-		t.Fatal(err)
+	if ok, err := idem.Put(ctx, "alice", "k1", "", rec); err != nil || !ok {
+		t.Fatal(ok, err)
 	}
 	got, ok, err := idem.Get(ctx, "alice", "k1")
 	if !ok || err != nil || got.Status != 201 || string(got.Body) != `{"code":"abc"}` {
@@ -246,7 +246,7 @@ func TestIdempotency(t *testing.T) {
 	if _, _, err := idem.Get(ctx, "alice", "k1"); err == nil {
 		t.Fatal("expected error")
 	}
-	if err := idem.Put(ctx, "alice", "k1", rec); err == nil {
+	if _, err := idem.Put(ctx, "alice", "k1", "", rec); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -266,15 +266,15 @@ func TestIdempotencyClaimIsAtomic(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rec, mine, err := idem.Claim(ctx, "alice", "k", "fp")
+			rec, claim, err := idem.Claim(ctx, "alice", "k", "fp")
 			if err != nil {
 				t.Error(err)
 				return
 			}
-			if !mine && (rec.Status != 0 || rec.Fingerprint != "fp") {
+			if claim == "" && (rec.Status != 0 || rec.Fingerprint != "fp") {
 				t.Errorf("loser saw %+v, want the pending claim", rec)
 			}
-			if mine {
+			if claim != "" {
 				mu.Lock()
 				wins++
 				mu.Unlock()
@@ -288,20 +288,62 @@ func TestIdempotencyClaimIsAtomic(t *testing.T) {
 	if ttl := mr.TTL(idemKey("alice", "k")); ttl != IdemClaimTTL {
 		t.Fatalf("claim ttl = %v", ttl)
 	}
-	if err := idem.Put(ctx, "alice", "k", IdemRecord{Fingerprint: "fp", Status: 201, Body: []byte(`{}`)}); err != nil {
-		t.Fatal(err)
-	}
-	if rec, mine, _ := idem.Claim(ctx, "alice", "k", "fp"); mine || rec.Status != 201 {
-		t.Fatalf("after Put: %+v mine=%v", rec, mine)
-	}
 	// Release lets a retry claim the key again.
-	_ = idem.Release(ctx, "alice", "k")
-	if _, mine, _ := idem.Claim(ctx, "alice", "k", "fp"); !mine {
+	raw, _ := mr.Get(idemKey("alice", "k"))
+	_ = idem.Release(ctx, "alice", "k", raw)
+	_, c2, _ := idem.Claim(ctx, "alice", "k", "fp")
+	if c2 == "" {
 		t.Fatal("released key must be claimable")
 	}
+	if ok, err := idem.Put(ctx, "alice", "k", c2, IdemRecord{Fingerprint: "fp", Status: 201, Body: []byte(`{}`)}); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if rec, claim, _ := idem.Claim(ctx, "alice", "k", "fp"); claim != "" || rec.Status != 201 {
+		t.Fatalf("after Put: %+v claim=%q", rec, claim)
+	}
+	if ttl := mr.TTL(idemKey("alice", "k")); ttl != IdempotencyTTL {
+		t.Fatalf("response ttl = %v", ttl)
+	}
 	// An abandoned claim expires.
+	_, _, _ = idem.Claim(ctx, "alice", "k2", "fp")
 	mr.FastForward(IdemClaimTTL)
-	if _, mine, _ := idem.Claim(ctx, "alice", "k", "fp"); !mine {
+	if _, claim, _ := idem.Claim(ctx, "alice", "k2", "fp"); claim == "" {
 		t.Fatal("expired claim must be claimable")
+	}
+}
+
+// Regression (second review, finding 2): request A outlives its claim; B
+// claims the key and finishes. A's late Release or Put must not delete or
+// overwrite B's record.
+func TestIdempotencyClaimOwnership(t *testing.T) {
+	ctx := context.Background()
+	mr := miniredis.RunT(t)
+	idem := NewIdempotency(redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1}))
+	_, a, _ := idem.Claim(ctx, "alice", "k", "fp")
+	mr.FastForward(IdemClaimTTL) // A's lease expires
+	_, b, _ := idem.Claim(ctx, "alice", "k", "fp")
+	if a == "" || b == "" || a == b {
+		t.Fatalf("claims a=%q b=%q must both succeed with distinct tokens", a, b)
+	}
+	if ok, _ := idem.Put(ctx, "alice", "k", b, IdemRecord{Fingerprint: "fp", Status: 201, Body: []byte(`{"code":"bbb"}`)}); !ok {
+		t.Fatal("B must store its response")
+	}
+	if err := idem.Release(ctx, "alice", "k", a); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := idem.Put(ctx, "alice", "k", a, IdemRecord{Fingerprint: "fp", Status: 201, Body: []byte(`{"code":"aaa"}`)}); ok {
+		t.Fatal("A's late Put must not overwrite B's record")
+	}
+	got, found, _ := idem.Get(ctx, "alice", "k")
+	if !found || string(got.Body) != `{"code":"bbb"}` {
+		t.Fatalf("B's record = %+v found=%v, want B's response", got, found)
+	}
+	// B's own release would also not delete a finished response.
+	_ = idem.Release(ctx, "alice", "k", b)
+	if _, found, _ := idem.Get(ctx, "alice", "k"); !found {
+		t.Fatal("release must never delete a finished response")
+	}
+	if IdemWorkDeadline >= IdemClaimTTL {
+		t.Fatal("claimed work must be bounded inside the claim lease")
 	}
 }

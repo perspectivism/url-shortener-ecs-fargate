@@ -259,10 +259,11 @@ version: ## Print the version stamped into binaries (ADR-0026)
 	@echo $(VERSION)
 
 .PHONY: test-scripts
-test-scripts: ## Self-tests for the version, release and saved-plan scripts
+test-scripts: ## Self-tests for the version, release, saved-plan and settings scripts
 	@scripts/test-version.sh
 	@scripts/test-release.sh
 	@scripts/test-saved-plan.sh
+	@scripts/test-varfiles.sh
 
 .PHONY: ci
 ci: ## Everything CI runs, locally (the dev plan needs AWS and runs only in CI)

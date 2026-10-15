@@ -1,6 +1,6 @@
 # ADR-0030: Consistency under concurrency — invalidation fences, idempotency claims, dedupe window
 
-- **Status:** Accepted (supersedes delete-on-write invalidation in [ADR-0008](0008-elasticache-serverless-valkey.md) and the 3-day dedupe marker TTL in [ADR-0010](0010-async-click-pipeline.md))
+- **Status:** Accepted; claims refined by [ADR-0031](0031-consistent-link-reads-and-owned-idempotency-claims.md) (supersedes delete-on-write invalidation in [ADR-0008](0008-elasticache-serverless-valkey.md) and the 3-day dedupe marker TTL in [ADR-0010](0010-async-click-pipeline.md))
 - **Date:** 2026-10-15
 - **Deciders:** project owner, coding agent
 

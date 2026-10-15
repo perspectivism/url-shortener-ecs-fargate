@@ -1,6 +1,6 @@
 # ADR-0028: Approve the saved plan; versioned environment settings
 
-- **Status:** Accepted (supersedes the job layout of [ADR-0027](0027-manual-approval-for-every-deploy.md), where approval preceded the plan, and the `example.tfvars` convention of [ADR-0016](0016-terraform-layout-environments-s3-native-locking.md))
+- **Status:** Accepted; its `dev-plan`/`prod-plan` environments and per-environment plan roles are superseded by [ADR-0032](0032-two-github-environments-deploy-plans-trust-main.md) (supersedes the job layout of [ADR-0027](0027-manual-approval-for-every-deploy.md), where approval preceded the plan, and the `example.tfvars` convention of [ADR-0016](0016-terraform-layout-environments-s3-native-locking.md))
 - **Date:** 2026-10-15
 - **Deciders:** project owner, coding agent
 

@@ -167,7 +167,8 @@ classDiagram
 
 Access patterns:
 
-- **Resolve:** `GetItem LINK#code`.
+- **Resolve:** strongly consistent `GetItem LINK#code` (cache misses only), so
+  a read after a disable or edit sees it ([ADR-0031](adr/0031-consistent-link-reads-and-owned-idempotency-claims.md)).
 - **Create:** conditional `PutItem`.
 - **Allocate IDs:** `UpdateItem ADD` on the counter.
 - **List an owner's links:** `gsi1` query.
@@ -302,7 +303,7 @@ option 2 becomes necessary at scale anyway.
 | --- | --- | --- |
 | `l:{code}` | `{u, exp, st}` or `{nf: true}` | `min(1 h, exp − now)`; negative 60 s |
 | `rl:{owner}:{route}:{window}` | counter | window |
-| `idem:{owner}:{key}` | claim (body fingerprint), then stored response | 30 s claim, then 24 h |
+| `idem:{owner}:{key}` | claim (body fingerprint + owner token), then stored response | 30 s claim, then 24 h |
 | `hll:{code}:{date}` | HyperLogLog | 8 days |
 
 - **Stampede protection:** singleflight per code per task, so one DynamoDB
@@ -311,7 +312,9 @@ option 2 becomes necessary at scale anyway.
 - **Invalidation** ([ADR-0030](adr/0030-consistency-under-concurrency.md)):
   write DynamoDB first, then replace the entry with a 10-second fence. Fills
   are `SET NX`, so a fill that read the old link cannot write it back over
-  the fence; a fill slower than 5 s writes nothing. A failed invalidation is
+  the fence; a fill slower than 5 s writes nothing. Misses read DynamoDB
+  strongly consistently, so they never serve the pre-change item
+  ([ADR-0031](adr/0031-consistent-link-reads-and-owned-idempotency-claims.md)). A failed invalidation is
   retried once, counted and alarmed, and staleness is bounded by the TTL.
 - **Failure mode:** every cache error fails open to DynamoDB
   ([ADR-0008](adr/0008-elasticache-serverless-valkey.md)).
@@ -394,7 +397,7 @@ flowchart LR
 | Exfiltration from a task | Isolated subnets, endpoint data-perimeter policies, least-privilege roles, per-environment CMK ([ADR-0013](adr/0013-subnet-tiers-vpc-endpoints-nat-only-for-scanning.md), [ADR-0023](adr/0023-iam-review-data-perimeter-and-waf-tuning.md)) |
 | Secrets | Secrets Manager values entered out of band; nothing in git, images or state ([ADR-0014](adr/0014-secrets-management.md)) |
 
-The full STRIDE analysis is in [threat-model.md](threat-model.md): 61 rows, all mitigated or accepted.
+The full STRIDE analysis is in [threat-model.md](threat-model.md): 65 rows, all mitigated or accepted.
 
 ## 10. Deployment architecture
 

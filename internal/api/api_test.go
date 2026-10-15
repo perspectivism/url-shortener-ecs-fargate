@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -61,37 +62,46 @@ type fakeIdem struct {
 	mu  sync.Mutex
 	m   map[string]cache.IdemRecord
 	err error
+	n   int
 }
 
-// Claim models SET NX: the first caller owns the key.
-func (f *fakeIdem) Claim(_ context.Context, owner, key, fingerprint string) (cache.IdemRecord, bool, error) {
+// Claim models SET NX: the first caller owns the key; its claim is the token.
+func (f *fakeIdem) Claim(_ context.Context, owner, key, fingerprint string) (cache.IdemRecord, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
-		return cache.IdemRecord{}, false, f.err
+		return cache.IdemRecord{}, "", f.err
 	}
 	if r, ok := f.m[owner+"|"+key]; ok {
-		return r, false, nil
+		return r, "", nil
 	}
-	f.m[owner+"|"+key] = cache.IdemRecord{Fingerprint: fingerprint}
-	return cache.IdemRecord{}, true, nil
+	f.n++
+	tok := fmt.Sprint("claim-", f.n)
+	f.m[owner+"|"+key] = cache.IdemRecord{Fingerprint: fingerprint, Token: tok}
+	return cache.IdemRecord{}, tok, nil
 }
 
-func (f *fakeIdem) Release(_ context.Context, owner, key string) error {
+// Release and Put act only while the key holds this claim (as in Valkey).
+func (f *fakeIdem) Release(_ context.Context, owner, key, claim string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.m, owner+"|"+key)
+	if r, ok := f.m[owner+"|"+key]; ok && r.Status == 0 && r.Token == claim {
+		delete(f.m, owner+"|"+key)
+	}
 	return nil
 }
 
-func (f *fakeIdem) Put(_ context.Context, owner, key string, r cache.IdemRecord) error {
+func (f *fakeIdem) Put(_ context.Context, owner, key, claim string, r cache.IdemRecord) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
-		return f.err
+		return false, f.err
+	}
+	if cur, ok := f.m[owner+"|"+key]; ok && (cur.Status != 0 || cur.Token != claim) {
+		return false, nil
 	}
 	f.m[owner+"|"+key] = r
-	return nil
+	return true, nil
 }
 
 type harness struct {

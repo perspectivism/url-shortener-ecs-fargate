@@ -117,10 +117,31 @@ func TestItemRoundTrip(t *testing.T) {
 	}
 }
 
+// Regression (second review, finding 1): after a disable completes, a cache
+// miss must not redirect from a stale replica. The fake serves the old active
+// item to eventually consistent reads, as DynamoDB may.
+func TestGetLinkSeesCompletedDisable(t *testing.T) {
+	active := sampleLink()
+	disabled := active
+	disabled.Status = links.StatusDisabled
+	stale, _ := attributevalue.MarshalMap(toItem(active))
+	current, _ := attributevalue.MarshalMap(toItem(disabled))
+	db := &fakeDB{getItem: func(in *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+		if in.ConsistentRead != nil && *in.ConsistentRead {
+			return &dynamodb.GetItemOutput{Item: current}, nil
+		}
+		return &dynamodb.GetItemOutput{Item: stale}, nil
+	}}
+	l, err := NewLinks(db, "links", 200*time.Millisecond).GetLink(context.Background(), "abc123")
+	if err != nil || l.Status != links.StatusDisabled {
+		t.Fatalf("read after disable: status %q err %v, want disabled", l.Status, err)
+	}
+}
+
 func TestGetLink(t *testing.T) {
 	item, _ := attributevalue.MarshalMap(toItem(sampleLink()))
 	db := &fakeDB{getItem: func(in *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
-		if s(in.Key["pk"]) != "LINK#abc123" || s(in.Key["sk"]) != "META" || *in.TableName != "links" || in.ConsistentRead != nil {
+		if s(in.Key["pk"]) != "LINK#abc123" || s(in.Key["sk"]) != "META" || *in.TableName != "links" || in.ConsistentRead == nil || !*in.ConsistentRead {
 			t.Fatalf("bad request %+v", in)
 		}
 		return &dynamodb.GetItemOutput{Item: item}, nil

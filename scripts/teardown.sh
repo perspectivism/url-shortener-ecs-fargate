@@ -16,10 +16,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$ROOT/.tools/bin:$PATH" TF_IN_AUTOMATION=1
 
 # -var-file arguments for an env root (scripts/tf-varfiles.sh, ADR-0028), in var_args.
+# Fails (and stops the teardown) if the helper rejects the settings: a plain
+# assignment propagates its exit status, unlike reading from <(...).
 set_var_args() {
-  local f
+  local f list
+  list="$("$ROOT/scripts/tf-varfiles.sh" "$(basename "$1")")"
   var_args=()
-  while read -r f; do var_args+=("-var-file=$f"); done < <("$ROOT/scripts/tf-varfiles.sh" "$(basename "$1")")
+  while read -r f; do var_args+=("-var-file=$f"); done <<<"$list"
 }
 
 init_env() {
@@ -44,8 +47,8 @@ need_approval() {
 
 plan_destroy() {
   local env="$1" d="$ROOT/infra/envs/$1"
-  init_env "$d"
   set_var_args "$d"
+  init_env "$d"
   (cd "$d" && terraform plan -destroy -input=false "${var_args[@]}" -out=tfplan-destroy -no-color >plan-destroy.log) ||
     { tail -30 "$d/plan-destroy.log" >&2; exit 1; }
   summary "$d" tfplan-destroy | tee "$d/plan-destroy-summary.txt"
@@ -71,8 +74,8 @@ destroy() {
 unprotect() {
   local env="$1" d="$ROOT/infra/envs/$1"
   [[ "$env" == prod ]] || { echo "unprotect is only needed for prod (dev already has force_destroy = true)" >&2; exit 2; }
-  init_env "$d"
   set_var_args "$d"
+  init_env "$d"
   (cd "$d" && terraform plan -input=false "${var_args[@]}" -var force_destroy=true -out=tfplan-unprotect -no-color >plan-unprotect.log) ||
     { tail -30 "$d/plan-unprotect.log" >&2; exit 1; }
   (cd "$d" && terraform show -json tfplan-unprotect) | jq -r '

@@ -4,8 +4,10 @@
 #   envs: deploy.tfvars (committed, required) + terraform.tfvars.json (CI
 #         overlay) or terraform.tfvars (local overlay, gitignored)
 #   bootstrap: terraform.tfvars (gitignored)
-# deploy.tfvars must not set alert_email (personal data stays out of git) or
-# image_tag (chosen per run).
+# deploy.tfvars is committed, so it must hold no personal data or per-run
+# values: it may not set a variable marked `sensitive` in variables.tf (e.g.
+# alert_email), contain anything that looks like an email address, or set
+# image_tag / enable_services (chosen per run).
 # Usage: scripts/tf-varfiles.sh <bootstrap|dev|prod>
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,8 +22,17 @@ case "$target" in
   *) echo "unknown root: $target" >&2; exit 2 ;;
 esac
 [[ -f "$dir/deploy.tfvars" ]] || { echo "missing infra/envs/$target/deploy.tfvars (committed settings)" >&2; exit 1; }
-if grep -Eq '^[[:space:]]*(alert_email|image_tag)[[:space:]]*=' "$dir/deploy.tfvars"; then
-  echo "infra/envs/$target/deploy.tfvars must not set alert_email or image_tag (overlay files only)" >&2
+settings="$dir/deploy.tfvars"
+# Variables declared sensitive in variables.tf.
+mapfile -t sensitive < <(awk '/^variable "/ {name=$2; gsub(/"/, "", name)} /^[[:space:]]*sensitive[[:space:]]*=[[:space:]]*true/ {print name}' "$dir/variables.tf")
+for v in "${sensitive[@]}" image_tag enable_services; do
+  if grep -Eq "^[[:space:]]*${v}[[:space:]]*=" "$settings"; then
+    echo "infra/envs/$target/deploy.tfvars must not set $v (sensitive or per-run: use the gitignored overlay)" >&2
+    exit 1
+  fi
+done
+if grep -v '^[[:space:]]*#' "$settings" | grep -Eq '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'; then
+  echo "infra/envs/$target/deploy.tfvars must not contain email addresses (committed file)" >&2
   exit 1
 fi
 echo deploy.tfvars

@@ -9,7 +9,7 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
 | [0002](0002-go-for-all-services.md) | Go for all services | Accepted |
 | [0003](0003-ecs-on-fargate.md) | ECS on Fargate (vs Lambda, EKS, EC2) | Accepted |
-| [0004](0004-dynamodb-for-the-link-store.md) | DynamoDB for the link store (vs Postgres/Aurora) | Accepted |
+| [0004](0004-dynamodb-for-the-link-store.md) | DynamoDB for the link store (vs Postgres/Aurora) | Accepted (redirect reads superseded by 0031) |
 | [0005](0005-separate-links-and-analytics-tables.md) | Separate links and analytics tables | Accepted |
 | [0006](0006-short-code-generation-range-allocation-and-sqids.md) | Short code generation: range allocation + Sqids | Accepted |
 | [0007](0007-302-redirects-and-no-edge-caching.md) | 302 redirects and no edge caching of redirects | Accepted |
@@ -33,6 +33,8 @@ see [ADR-0001](0001-record-architecture-decisions.md) for the rules.
 | [0025](0025-analytics-retention-13-months.md) | Analytics retention of 13 months | Accepted |
 | [0026](0026-release-versioning-with-tags.md) | Release versioning with tags | Accepted |
 | [0027](0027-manual-approval-for-every-deploy.md) | Manual approval for every deploy | Accepted (job layout superseded by 0028) |
-| [0028](0028-approve-the-saved-plan-versioned-environment-settings.md) | Approve the saved plan; versioned environment settings | Accepted |
+| [0028](0028-approve-the-saved-plan-versioned-environment-settings.md) | Approve the saved plan; versioned environment settings | Accepted (plan environments superseded by 0032) |
 | [0029](0029-edge-log-privacy.md) | Edge log privacy: field allowlist, WAF log filter, no request sampling | Accepted |
-| [0030](0030-consistency-under-concurrency.md) | Consistency under concurrency: invalidation fences, idempotency claims, dedupe window | Accepted |
+| [0030](0030-consistency-under-concurrency.md) | Consistency under concurrency: invalidation fences, idempotency claims, dedupe window | Accepted (claims refined by 0031) |
+| [0031](0031-consistent-link-reads-and-owned-idempotency-claims.md) | Strongly consistent link reads and owned idempotency claims | Accepted |
+| [0032](0032-two-github-environments-deploy-plans-trust-main.md) | Two GitHub environments; deploy plans trust main | Accepted |

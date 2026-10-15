@@ -261,9 +261,10 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
 - ❓ **Follow-ups:**
   - *"Idempotency?"* The key is claimed atomically in Valkey before the create,
     so concurrent retries on different tasks make one link (a repeat still in
-    flight gets 409). The response is stored per owner and key for 24 h, with
-    a body fingerprint; a different body → 400
-    ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md)).
+    flight gets 409). Each claim carries a token, so a slow request whose
+    claim expired can't clobber the next one's record. The response is stored
+    per owner and key for 24 h, with a body fingerprint; a different body → 400
+    ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md), [ADR-0031](docs/adr/0031-consistent-link-reads-and-owned-idempotency-claims.md)).
 - 📎 [ADR-0015](docs/adr/0015-api-key-authentication.md)
 
 ### 4. Data model and why DynamoDB
@@ -332,8 +333,10 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   - *"Race between a cache fill and a disable?"* A fill that read the link
     before the disable could write it back after the `DEL`. So a write
     leaves a 10 s fence instead, fills are `SET NX`, and a fill slower than
-    5 s skips the write; a test reproduces the race
-    ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md)).
+    5 s skips the write; a test reproduces the race. Misses read DynamoDB
+    strongly consistently, because an eventually consistent read could
+    still return the active item
+    ([ADR-0030](docs/adr/0030-consistency-under-concurrency.md), [ADR-0031](docs/adr/0031-consistent-link-reads-and-owned-idempotency-claims.md)).
   - *"Why not DAX?"* Valkey also serves rate limits, idempotency and
     HyperLogLog uniques. Auth is IAM tokens, not passwords.
   - *"Cache full?"* Serverless evicts LRU keys that have a TTL, and every key
@@ -375,7 +378,7 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   time and nightly, there is an admin kill switch, and WAF rate rules answer
   429. Infrastructure has no public origin, least-privilege roles, endpoint
   policies that block exfiltration, and secrets that never touch git or Terraform state."
-- 🔍 **Show:** [threat model](docs/threat-model.md) (61 STRIDE rows, none
+- 🔍 **Show:** [threat model](docs/threat-model.md) (65 STRIDE rows, none
   open); [design §9](docs/design.md#9-abuse-prevention-and-security).
 - ⚖️ **Trade-off:** WAF may block some legitimate URLs (for example ones with IP
   literals); this is accepted and tuned from the WAF logs.
@@ -399,7 +402,9 @@ flows. Diagrams are in [docs/design.md](docs/design.md).
   - *"Deploys?"* Images are built once and the same digests are promoted.
     Nothing deploys automatically: a human starts the workflow; for each
     environment a read-only job plans, and a reviewer approves that saved
-    plan, which is applied only if its hash matches. Settings are committed,
+    plan, which is applied only if its hash matches. Only two GitHub
+    environments exist, dev and prod: plan jobs need an identity, not an
+    approval ([ADR-0032](docs/adr/0032-two-github-environments-deploy-plans-trust-main.md)). Settings are committed,
     so CI never falls back to defaults. Rolling deploys use the circuit breaker
     ([ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md)).
   - *"What's running in prod?"* The latest GitHub Release. The pipeline
@@ -522,7 +527,7 @@ docs/           design, ADRs, threat model, runbook, cost
 | Document | Contents |
 | --- | --- |
 | [docs/design.md](docs/design.md) | System design, in walkthrough order |
-| [docs/adr/](docs/adr/README.md) | 30 architecture decision records, each with an Interview Angle |
+| [docs/adr/](docs/adr/README.md) | 32 architecture decision records, each with an Interview Angle |
 | [CHANGELOG.md](CHANGELOG.md) | Releases (tagged automatically when a commit reaches prod) |
 | [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, STRIDE, residual risks, suppressions |
 | [docs/runbook.md](docs/runbook.md) | SLOs, every alarm, deploy/rollback and operational procedures |
