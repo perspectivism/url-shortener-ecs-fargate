@@ -16,7 +16,7 @@ import re
 import sys
 
 WORDS = {"twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16}
-DOCS = ["README.md", "docs/design.md", "docs/cost.md", "docs/runbook.md", "docs/threat-model.md"]
+DOCS = ["README.md", "CHANGELOG.md", "docs/design.md", "docs/cost.md", "docs/runbook.md", "docs/threat-model.md"]
 
 
 def num(s):

@@ -463,6 +463,8 @@ one-line change; nothing below has been deployed.
 | Regression tests fail without the fix | negative probes | ✅ | fence-blind fill → `TestResolveFillRacingDisable` caches the phishing URL; plain `SET` claim → 50/50 concurrent claims win; no URL check → stale verdict disables the new URL; repeat not propagated → `[Failed Duplicate]`; click-time TTL → marker TTL check fails; sampling on, `c-ip` logged → edge tests fail |
 | Deploy gate | `scripts/check-deploy-gate.sh` + 5 negative probes | ✅ | rejects: apply job not depending on its plan job, apply without the saved-plan check, apply role in a plan job, AWS role outside the four environments, a push trigger |
 | Workflows | `zizmor --persona auditor` | ✅ | no findings |
+| Fresh-clone test | `make fresh-clone-test` | ✅ | on `ab0ab3d`: Quickstart from a clean clone passed; integration 97 s |
+| Docs facts also cover CHANGELOG | `make docs-check` | ✅ | CHANGELOG said 27 ADRs (actual 30); `check_doc_facts.py` now scans it; negative probe (29) fails |
 
 - **Decisions / ADRs:** [ADR-0028](docs/adr/0028-approve-the-saved-plan-versioned-environment-settings.md), [ADR-0029](docs/adr/0029-edge-log-privacy.md), [ADR-0030](docs/adr/0030-consistency-under-concurrency.md); status notes on [ADR-0008](docs/adr/0008-elasticache-serverless-valkey.md)/0010/0012/0016/0018/0027.
 - **Deviations from SPEC:** N6: WAF logs of blocked/counted requests keep the client IP (WAF cannot redact it; 14/90 days). §5.2: dedupe marker TTL is write time + 4 days (SPEC: now + 3 days). §14: per-environment plan job before the approval-gated apply.
